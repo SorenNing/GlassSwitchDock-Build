@@ -44,6 +44,7 @@ jobs:
         run: make smoke
       - name: Run simulator regression harness
         id: simulator
+        timeout-minutes: 12
         if: ${{ !cancelled() && inputs.simulator && steps.smoke.outcome == 'success' }}
         continue-on-error: true
         run: bash tools/run-ci-simulator.sh
