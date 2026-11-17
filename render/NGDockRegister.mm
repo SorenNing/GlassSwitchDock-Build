@@ -36,7 +36,10 @@ char Anchor;
 
 bool WriteState(NSString *name,NSDictionary *value) {
     NSString *dir=NGDockStateDirectory();BOOL directory=NO;
-    if (![NSFileManager.defaultManager fileExistsAtPath:dir isDirectory:&directory] || !directory) return false;
+    if (!dir.length || ![NSFileManager.defaultManager fileExistsAtPath:dir isDirectory:&directory] || !directory) {
+        NSLog(@"[GlassSwitchDockRender] state directory unavailable: %@",dir?:@"unresolved RootHide path");
+        return false;
+    }
     NSString *path=[dir stringByAppendingPathComponent:name];
     return [value writeToFile:path atomically:YES] && chmod(path.fileSystemRepresentation,0644)==0;
 }
@@ -184,7 +187,11 @@ bool RapidStartGuard(void) {
 #ifndef NG_TESTING
 __attribute__((constructor)) static void NGDockBackendInitialize(void) {
     @autoreleasepool {
-        if (![NSProcessInfo.processInfo.processName isEqualToString:@"backboardd"]) return;
+        NSString *process=NSProcessInfo.processInfo.processName;
+        NSString *statePath=NGDockStateDirectory();
+        NSLog(@"[GlassSwitchDockRender] loaded pid=%d process=%@ state=%@",getpid(),process,statePath?:@"unresolved RootHide path");
+        WriteState(@"load.plist",@{@"schema":@1,@"pid":@(getpid()),@"process":process?:@"unknown",@"boot":@(BootTime()),@"statePath":statePath?:@"unresolved"});
+        if (![process isEqualToString:@"backboardd"]) return;
         Major=(unsigned)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
         if (Major<15 || Major>18) {Report(@"unsupported-render-abi");return;}
         if (!RapidStartGuard()) {Report(@"rapid-start-guard");return;}

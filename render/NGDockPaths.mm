@@ -1,20 +1,18 @@
 #import "NGDockRender.h"
+#import "NGDockStatePath.h"
 #import <dlfcn.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <math.h>
 
 NSString *NGDockStateDirectory(void) {
-#ifdef NG_TESTING
-    return [NSTemporaryDirectory() stringByAppendingPathComponent:@"glassswitchdock-render"];
-#else
-    return @"/var/mobile/Library/Preferences/com.ning.glassswitchdock.render";
-#endif
+    return NGDockSharedStateDirectory();
 }
 NSDictionary *NGDockReadSlot(unsigned slot) {
     if (slot>=NG_DOCK_SLOTS) return nil;
+    NSString *statePath=NGDockStateDirectory();if (!statePath.length) return nil;
     NSString *name=[NSString stringWithFormat:@"slot-%u.plist",slot];
-    NSDictionary *p=[NSDictionary dictionaryWithContentsOfFile:[NGDockStateDirectory() stringByAppendingPathComponent:name]];
+    NSDictionary *p=[NSDictionary dictionaryWithContentsOfFile:[statePath stringByAppendingPathComponent:name]];
     if (![p isKindOfClass:NSDictionary.class] || [p[@"schema"] unsignedIntValue]!=1 ||
         [p[@"slot"] unsignedIntValue]!=slot || ![p[@"token"] isKindOfClass:NSString.class] ||
         [p[@"token"] length]>128 || ![p[@"active"] boolValue]) return nil;

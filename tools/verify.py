@@ -211,6 +211,10 @@ def verify(path, arch, native=True):
             require(item['filetype'] == (6 if name in (main,backend) else 8), 'Wrong Mach-O file type '+name)
             require(ROOT_HIDE in item['dependencies'] if arch == 'arm64e' else ROOT_HIDE not in item['dependencies'],
                     'RootHide runtime dependency mismatch '+name)
+            if arch == 'arm64e' and name in (main, backend):
+                root_paths = [x for x in item['imports'] if x['symbol'] == '_jbroot']
+                require(root_paths and all(x['dependency'] == ROOT_HIDE for x in root_paths),
+                        'Missing RootHide state-path conversion import '+name)
             if name == main:
                 require(b'GLSSwitch\x00' not in files[name], 'Removed Glassify switch still compiled into product')
                 require(b'NGWallpaperBackdrop\x00' not in files[name], 'Removed Dock screenshot driver still present')

@@ -1,5 +1,6 @@
 #import "NGSystemBackdrop.h"
 #import "Bridge.h"
+#import "NGDockStatePath.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
 #include <sys/stat.h>
@@ -7,11 +8,7 @@
 #include <unistd.h>
 
 static NSString *NGStateDirectory(void) {
-#ifdef NG_TESTING
-    return [NSTemporaryDirectory() stringByAppendingPathComponent:@"glassswitchdock-render"];
-#else
-    return @"/var/mobile/Library/Preferences/com.ning.glassswitchdock.render";
-#endif
+    return NGDockSharedStateDirectory();
 }
 static int64_t NGBoot(void) {struct timeval t={};size_t n=sizeof(t);int k[]={CTL_KERN,KERN_BOOTTIME};return sysctl(k,2,&t,&n,NULL,0)==0?t.tv_sec:0;}
 static NSMutableIndexSet *NGSlots(void) {static NSMutableIndexSet *s;static dispatch_once_t once;dispatch_once(&once,^{s=[NSMutableIndexSet indexSet];});return s;}
@@ -93,9 +90,9 @@ static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const vo
     if (![_lastPacket isEqualToDictionary:packet]) {
         NSDictionary *published=[packet copy];NSString *token=NSUUID.UUID.UUIDString;
         packet[@"token"]=token;packet[@"pid"]=@(getpid());
-        BOOL directory=NO;
-        if (![NSFileManager.defaultManager fileExistsAtPath:NGStateDirectory() isDirectory:&directory] || !directory) return NO;
-        NSString *file=[NGStateDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"slot-%lu.plist",(unsigned long)_slot]];
+        BOOL directory=NO;NSString *statePath=NGStateDirectory();
+        if (!statePath.length || ![NSFileManager.defaultManager fileExistsAtPath:statePath isDirectory:&directory] || !directory) return NO;
+        NSString *file=[statePath stringByAppendingPathComponent:[NSString stringWithFormat:@"slot-%lu.plist",(unsigned long)_slot]];
         if (![packet writeToFile:file atomically:YES]) return NO;
         chmod(file.fileSystemRepresentation,0644);
         _lastPacket=published;_geometry=geometry;_token=token;_hasFrame=NO;_failedToken=nil;
@@ -106,7 +103,8 @@ static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const vo
 }
 - (void)readBackend {
     if (_detached) return;
-    NSDictionary *backend=[NSDictionary dictionaryWithContentsOfFile:[NGStateDirectory() stringByAppendingPathComponent:@"backend.plist"]];
+    NSString *statePath=NGStateDirectory();
+    NSDictionary *backend=statePath.length?[NSDictionary dictionaryWithContentsOfFile:[statePath stringByAppendingPathComponent:@"backend.plist"]]:nil;
     pid_t pid=[backend[@"pid"] intValue];
     if ([backend[@"boot"] longLongValue]!=NGBoot() || ![backend[@"registered"] boolValue] || pid<=0 || (kill(pid,0)!=0 && errno!=EPERM)) {
         _attached=NO;_hasFrame=NO;self.layer.filters=nil;self.layer.hidden=YES;if (_onFrame) _onFrame(NO);return;
@@ -135,7 +133,7 @@ static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const vo
 - (void)detach {
     if (_detached) return;_detached=YES;_attached=NO;_hasFrame=NO;self.layer.filters=nil;
     NSString *file=[NGStateDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"slot-%lu.plist",(unsigned long)_slot]];
-    [NSFileManager.defaultManager removeItemAtPath:file error:NULL];
+    if (file.length) [NSFileManager.defaultManager removeItemAtPath:file error:NULL];
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),CFSTR("com.ning.glassswitchdock/dock-parameters"),NULL,NULL,true);
 }
 - (NSDictionary *)diagnostics {return @{@"slot":@(_slot),@"ready":@(_hasFrame),@"filterAttached":@(_attached),@"token":_token?:@""};}
