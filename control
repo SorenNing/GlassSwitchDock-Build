@@ -1,0 +1,13 @@
+Package: com.ning.glassswitchdock
+Name: GlassSwitchDock
+Version: 0.1.4
+Architecture: iphoneos-arm64e
+Description: Original Theseus switch with a clear desktop Dock glass background.
+Depends: mobilesubstrate, firmware (>= 15.0), preferenceloader
+Conflicts: com.ning.switch, com.ning.daynightswitch
+Replaces: com.ning.switch, com.ning.daynightswitch
+Section: Tweaks
+Icon: file:///usr/share/icons/com.ning.glassswitchdock.png
+Maintainer: Ning
+Author: Ning&Vadim Drobinin&Hung Phan
+Tag: purpose::extension

@@ -1,0 +1,36 @@
+{
+  "name": "GlassSwitchDock",
+  "package": "com.ning.glassswitchdock",
+  "version": "0.1.4",
+  "author": "Ning&Vadim Drobinin&Hung Phan",
+  "repository": "https://github.com/Ningios/GlassSwitchDock",
+  "deployment": "15.0",
+  "frameworks": [
+    "Foundation",
+    "CoreFoundation",
+    "UIKit",
+    "Metal",
+    "MetalKit",
+    "QuartzCore",
+    "CoreGraphics",
+    "CoreVideo",
+    "IOSurface",
+    "Accelerate"
+  ],
+  "variants": {
+    "arm64": {
+      "architecture": "iphoneos-arm64",
+      "scheme": "rootless",
+      "prefix": "var/jb",
+      "subtype": 0,
+      "depends": "firmware (>= 15.0), preferenceloader, mobilesubstrate"
+    },
+    "arm64e": {
+      "architecture": "iphoneos-arm64e",
+      "scheme": "roothide",
+      "prefix": "",
+      "subtype": 2147483650,
+      "depends": "firmware (>= 15.0), preferenceloader, mobilesubstrate, roothide (>= 0.0.1)"
+    }
+  }
+}
