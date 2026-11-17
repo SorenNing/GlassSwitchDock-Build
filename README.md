@@ -25,7 +25,7 @@ All 89 original distribution files are checked against `Vendor/manifest.json`. S
 
 ## Build and verification
 
-Use the manual **Native GlassSwitchDock** GitHub Actions workflow. macOS/Xcode compiles the actual Swift, Objective-C++, C++ and Metal code and runs the UIKit simulator harness. The workflow builds and delivers only real arm64e RootHide, with one deb.
+Use the manual **Native GlassSwitchDock** GitHub Actions workflow. macOS/Xcode compiles the actual Swift, Objective-C++, C++ and Metal code and runs the UIKit simulator harness. The workflow delivers one iphoneos-arm64e RootHide deb. In 0.1.5 the frontend and preferences remain real arm64e; the render backend is compiled separately for arm64 and arm64e and combined with lipo so either backboardd process ABI can load it. Both backend slices use the RootHide scheme and the same real libroothide path interface.
 
 Portable checks: `make check`, `make infra-check`, `python3 tools/test-local.py`.
 Native checks: `make smoke`, `bash tools/run-ci-simulator.sh`, `make build ARCH=arm64e`, `make verify`.

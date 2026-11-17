@@ -194,17 +194,37 @@ class Build:
         return dylib
 
     def backend(self):
-        objects = self.compile(self.src['render'] + self.src['cpp'])
         output = self.out/'GlassSwitchDockRender.dylib'
-        link = ['-target', self.target, '-isysroot', self.sdk, '-Wl,-undefined,error', '-Wl,-twolevel_namespace', '-lc++']
-        for framework in ('Foundation', 'CoreFoundation', 'Metal', 'QuartzCore'):
-            link += ['-framework', framework]
-        if not self.smoke and self.variant == 'arm64e':
-            link += ['-L'+str(ROOT/'packaging/stubs'), '-Wl,-needed-lroothide']
-        self.run(self.tool('clang++')+link+['-dynamiclib',
-                 '-Wl,-install_name,@rpath/GlassSwitchDockRender.dylib', *objects, '-o', output])
+        architectures = ['arm64', 'arm64e'] if not self.smoke and self.variant == 'arm64e' else [self.arch]
+        saved = self.arch, self.target, self.obj, self.ccbase
+        slices = []
+        try:
+            for arch in architectures:
+                self.arch = arch
+                self.target = f'{arch}-apple-ios{CONFIG["deployment"]}' + ('-simulator' if self.smoke else '')
+                self.obj = saved[2]/('backend-'+arch); self.obj.mkdir(parents=True, exist_ok=True)
+                self.ccbase = list(saved[3]); self.ccbase[self.ccbase.index('-target')+1] = self.target
+                objects = self.compile(self.src['render'] + self.src['cpp'])
+                binary = self.obj/'GlassSwitchDockRender.dylib'
+                link = ['-target', self.target, '-isysroot', self.sdk, '-Wl,-undefined,error', '-Wl,-twolevel_namespace', '-lc++']
+                for framework in ('Foundation', 'CoreFoundation', 'Metal', 'QuartzCore'):
+                    link += ['-framework', framework]
+                if not self.smoke and self.variant == 'arm64e':
+                    link += ['-L'+str(ROOT/'packaging/stubs'), '-Wl,-needed-lroothide']
+                self.run(self.tool('clang++')+link+['-dynamiclib',
+                         '-Wl,-install_name,@rpath/GlassSwitchDockRender.dylib', *objects, '-o', binary])
+                # RootHide routing depends on the package scheme, not the process CPU.
+                # Both genuinely compiled slices retain self.defines and libroothide.
+                slices.append(binary)
+        finally:
+            self.arch, self.target, self.obj, self.ccbase = saved
+        if len(slices) == 2:
+            self.run(self.tool('lipo')+['-create', *slices, '-output', output])
+            self.run(self.tool('lipo')+[output, '-verify_arch', 'arm64', 'arm64e'])
+        else:
+            shutil.copyfile(slices[0], output)
         self.run(['codesign', '--force', '--sign', '-', '--timestamp=none', output])
-        self.run(['codesign', '--verify', '--strict', '--verbose=4', output])
+        self.run(['codesign', '--verify', '--all-architectures', '--strict', '--verbose=4', output])
         return output
 
     def preferences(self):
