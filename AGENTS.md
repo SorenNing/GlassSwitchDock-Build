@@ -21,5 +21,10 @@ Swift copies under the build directory. Exact-match guards reject changed
 upstream anchors. Production and simulator compilation use the same copies.
 Keep control and packaging/config.json versions in sync for each package build.
 
+Dock GPU readiness waits must return to the main dispatch queue between polls.
+Do not use a nested RunLoop from a main-queue block: Metal publishes its result
+on that same queue, which cannot drain until the block returns. Keep all four
+Dock scenarios and their real GPU assertions mandatory.
+
 Simulator execution does not establish physical SpringBoard rendering or real
 touch behavior. Device installation and visual/gesture checks are separate.

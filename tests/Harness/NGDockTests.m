@@ -13,9 +13,24 @@ static NSString *NGDockID(Class cls, NSInteger style, NSString *name) {
 static NSData *NGMaterialPixels(UIView *material) {
     return [material valueForKey:@"pixels"];
 }
-void NGRunDockTests(NGRecorder *r, UIView *root, dispatch_block_t completion) {
-    for (Class cls in @[SBDockView.class,SBFloatingDockPlatterView.class]) {
-        for (NSInteger style=0;style<2;style++) {
+// A nested RunLoop inside a main-queue block cannot drain main-queue Metal
+// completions. Return to dispatch between polls and between fixture cases.
+static void NGAwaitDock(NGRecorder *r, UIView *dock, NSDate *deadline, dispatch_block_t completion, dispatch_block_t next) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.02*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        @try {
+            if ([NGDockDiagnostics(dock)[@"ready"] boolValue] || deadline.timeIntervalSinceNow<=0) next();
+            else NGAwaitDock(r,dock,deadline,completion,next);
+        } @catch (NSException *error) {
+            [r check:NO name:@"dock.uncaught_exception" evidence:@{@"name":error.name,@"reason":error.reason ?: @"unknown"}];
+            completion();
+        }
+    });
+}
+static void NGRunDockCase(NGRecorder *r, UIView *root, NSUInteger index, dispatch_block_t completion) {
+    if (index==4) { completion(); return; }
+    Class cls=index<2 ? SBDockView.class : SBFloatingDockPlatterView.class;
+    NSInteger style=index%2;
+    @try {
             NGPatternView *wallpaper=[[NGPatternView alloc] initWithFrame:root.bounds];
             [root insertSubview:wallpaper atIndex:0];
             SBDockView *dock=[[cls alloc] initWithFrame:CGRectMake(15,366,root.bounds.size.width-30,84)];
@@ -24,9 +39,8 @@ void NGRunDockTests(NGRecorder *r, UIView *root, dispatch_block_t completion) {
             CGFloat alpha=dock.backgroundView.alpha;
             NGWritePreferences(NO,YES,style); NGRefreshFixtureDock(dock);
             UIView *material=NGMaterial(dock); [material layoutIfNeeded];
+            NGAwaitDock(r,dock,[NSDate dateWithTimeIntervalSinceNow:15],completion, ^{
             BOOL staticOnly=material!=nil && [material.layer.sublayers count]==2;
-            NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:15];
-            while (![NGDockDiagnostics(dock)[@"ready"] boolValue] && deadline.timeIntervalSinceNow>0) NGPump(0.02);
             for (UIView *v in NGDescendants(dock)) {
                 NSString *name=NSStringFromClass(v.class);
                 if ([name containsString:@"WallpaperBackdrop"] || [name containsString:@"Metal"] ||
@@ -92,15 +106,13 @@ void NGRunDockTests(NGRecorder *r, UIView *root, dispatch_block_t completion) {
             dock.backgroundView.layer.cornerCurve=kCACornerCurveCircular;
             dock.backgroundView.layer.maskedCorners=kCALayerMinXMinYCorner|kCALayerMaxXMaxYCorner;
             NGRefreshFixtureDock(dock); [material layoutIfNeeded];
-            deadline=[NSDate dateWithTimeIntervalSinceNow:15];
-            while (![NGDockDiagnostics(dock)[@"ready"] boolValue] && deadline.timeIntervalSinceNow>0) NGPump(0.02);
+            NGAwaitDock(r,dock,[NSDate dateWithTimeIntervalSinceNow:15],completion, ^{
             NSData *resized=NGMaterialPixels(material);
             [r check:[NGDockDiagnostics(dock)[@"ready"] boolValue] && resized.length!=before.length && material.layer.cornerRadius==19 && [material.layer.cornerCurve isEqualToString:kCACornerCurveCircular] && material.layer.maskedCorners==dock.backgroundView.layer.maskedCorners
                 name:NGDockID(cls,style,@"layout_updates_gpu_and_native_clip") evidence:@{}];
             material.overrideUserInterfaceStyle=material.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark ? UIUserInterfaceStyleLight : UIUserInterfaceStyleDark;
             [material setNeedsLayout]; [material layoutIfNeeded];
-            deadline=[NSDate dateWithTimeIntervalSinceNow:15];
-            while (![NGDockDiagnostics(dock)[@"ready"] boolValue] && deadline.timeIntervalSinceNow>0) NGPump(0.02);
+            NGAwaitDock(r,dock,[NSDate dateWithTimeIntervalSinceNow:15],completion, ^{
             [r check:[NGDockDiagnostics(dock)[@"ready"] boolValue] && ![resized isEqualToData:NGMaterialPixels(material)] && NGCaptureAttemptCount()==capturesBefore
                 name:NGDockID(cls,style,@"dark_mode_updates_gpu_without_capture") evidence:@{}];
             [r capture:root name:NGDockID(cls,style,@"render")];
@@ -108,7 +120,15 @@ void NGRunDockTests(NGRecorder *r, UIView *root, dispatch_block_t completion) {
             [r check:!NGMaterial(dock) && dock.backgroundView.superview==dock && dock.subviews.firstObject==dock.backgroundView && fabs(dock.backgroundView.alpha-alpha)<0.001
                 name:NGDockID(cls,style,@"disable_restores_background") evidence:@{}];
             [dock removeFromSuperview]; [wallpaper removeFromSuperview];
-        }
+            dispatch_async(dispatch_get_main_queue(), ^{ NGRunDockCase(r,root,index+1,completion); });
+            });
+            });
+            });
+    } @catch (NSException *error) {
+        [r check:NO name:@"dock.uncaught_exception" evidence:@{@"name":error.name,@"reason":error.reason ?: @"unknown"}];
+        completion();
     }
-    completion();
+}
+void NGRunDockTests(NGRecorder *r, UIView *root, dispatch_block_t completion) {
+    NGRunDockCase(r,root,0,completion);
 }
