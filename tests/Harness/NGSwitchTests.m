@@ -60,6 +60,13 @@ void NGRunSwitchTests(NGRecorder *r, UIView *root) {
         [r check:fabs(component.bounds.size.width-63) < 0.01 && fabs(component.bounds.size.height-28) < 0.01 && CGAffineTransformIsIdentity(component.transform)
                name:NGID(style, @"original_size_63x28")
            evidence:@{@"bounds": NSStringFromCGRect(component.bounds), @"transform": NSStringFromCGAffineTransform(component.transform)}];
+        a.transform=CGAffineTransformMakeScale(0.7,0.7);
+        NGRefreshSwitch(a); [component.superview layoutIfNeeded];
+        CGRect visible=[component convertRect:component.bounds toView:fixture];
+        [r check:fabs(visible.size.width-63)<0.01 && fabs(visible.size.height-28)<0.01
+               name:NGID(style, @"scaled_host_preserves_visible_size")
+           evidence:@{@"visible":NSStringFromCGRect(visible)}];
+        a.transform=CGAffineTransformIdentity; NGRefreshSwitch(a);
         [r check:!NGComponentOn(component, style) && NGComponentOn(second, style) && spyA.count == 0
                name:NGID(style, @"initial_sync_silent") evidence:NGState(a, component, style, spyA)];
         BOOL activated = NGInteract(component, style, NO, YES); NGPump(0.18);

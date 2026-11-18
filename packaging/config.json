@@ -1,7 +1,7 @@
 {
   "name": "GlassSwitchDock",
   "package": "com.ning.glassswitchdock",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": "Ning&Vadim Drobinin&Hung Phan",
   "repository": "https://github.com/Ningios/GlassSwitchDock",
   "deployment": "15.0",

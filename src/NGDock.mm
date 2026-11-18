@@ -88,7 +88,10 @@ static UIView *NGDockBackground(UIView *dock) {
     return nil;
 }
 @interface NGDockBinding : NSObject
-@property(nonatomic,weak) UIView *background;
+@property(nonatomic,strong) UIView *background;
+@property(nonatomic,weak) UIView *backgroundParent;
+@property(nonatomic) NSUInteger backgroundIndex;
+@property(nonatomic) BOOL backgroundHidden;
 @property(nonatomic,strong) NGStaticDockView *glass;
 @property(nonatomic) CGFloat backgroundAlpha;
 @end
@@ -98,8 +101,12 @@ static UIView *NGDockBackground(UIView *dock) {
 void NGRemoveDock(UIView *dock) {
     NGDockBinding *binding=objc_getAssociatedObject(dock,&kNGDockBindingKey);
     if (!binding) return;
+    UIView *parent=binding.backgroundParent;
+    if (parent && !binding.background.superview)
+        [parent insertSubview:binding.background atIndex:MIN(binding.backgroundIndex,parent.subviews.count)];
     [binding.glass removeFromSuperview];
     binding.background.alpha=binding.backgroundAlpha;
+    binding.background.hidden=binding.backgroundHidden;
     objc_setAssociatedObject(dock,&kNGDockBindingKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 #ifdef NG_TESTING
@@ -117,21 +124,29 @@ void NGRefreshDock(UIView *dock) {
     // Retain the exact same layers across app/home transitions.
     if (!dock.window) return;
     UIView *background=NGDockBackground(dock);
-    if (!background.superview || ![background isDescendantOfView:dock] || CGRectIsEmpty(background.bounds)) return;
     NGDockBinding *binding=objc_getAssociatedObject(dock,&kNGDockBindingKey);
     if (binding && binding.background!=background) { NGRemoveDock(dock); binding=nil; }
+    if (!background || CGRectIsEmpty(background.bounds)) return;
+    UIView *parent=background.superview ?: binding.backgroundParent;
+    if (!parent || (parent!=dock && ![parent isDescendantOfView:dock])) return;
     if (!binding) {
         binding=[NGDockBinding new]; binding.background=background;
         binding.backgroundAlpha=background.alpha;
+        binding.backgroundHidden=background.hidden;
         binding.glass=[[NGStaticDockView alloc] initWithFrame:CGRectZero];
         objc_setAssociatedObject(dock,&kNGDockBindingKey,binding,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     NGStaticDockView *glass=binding.glass;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    if (glass.superview!=background.superview) {
-        [glass removeFromSuperview]; [background.superview insertSubview:glass aboveSubview:background];
+    if (background.superview) {
+        binding.backgroundParent=parent;
+        binding.backgroundHidden=background.hidden;
+        [glass removeFromSuperview];
+        binding.backgroundIndex=[parent.subviews indexOfObjectIdenticalTo:background];
+        [parent insertSubview:glass belowSubview:background];
     }
-    CGRect frame=[background convertRect:background.bounds toView:background.superview];
+    // The detached view retains system-owned geometry, but cannot composite.
+    CGRect frame=background.frame;
     if (!CGRectEqualToRect(glass.frame,frame)) glass.frame=frame;
     CGFloat radius=background.layer.cornerRadius;
     if (radius<=0) for (UIView *child in background.subviews) radius=MAX(radius,child.layer.cornerRadius);
@@ -140,9 +155,9 @@ void NGRefreshDock(UIView *dock) {
     if (glass.radius!=radius) { glass.radius=radius; [glass setNeedsLayout]; }
     NSInteger style=NGDockStyle();
     if (glass.style!=style) { glass.style=style; [glass updatePalette]; }
-    glass.hidden=background.hidden;
+    glass.hidden=binding.backgroundHidden;
     glass.alpha=binding.backgroundAlpha;
-    background.alpha=0;
+    [background removeFromSuperview];
     [CATransaction commit];
 }
 void NGRefreshDocks(void) {

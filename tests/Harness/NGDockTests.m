@@ -42,6 +42,13 @@ void NGRunDockTests(NGRecorder *r, UIView *root, dispatch_block_t completion) {
             UIView *hit=[dock hitTest:[dock.icon convertPoint:CGPointMake(26,26) toView:dock] withEvent:nil];
             [r check:hit==dock.icon || [hit isDescendantOfView:dock.icon]
                 name:NGDockID(cls,style,@"dock_icon_hit_test_preserved") evidence:@{}];
+            [r check:!dock.backgroundView.superview
+                name:NGDockID(cls,style,@"native_background_detached") evidence:@{}];
+            [dock insertSubview:dock.backgroundView atIndex:0];
+            dock.backgroundView.alpha=1;
+            NGRefreshFixtureDock(dock);
+            [r check:!dock.backgroundView.superview && NGMaterial(dock)==material
+                name:NGDockID(cls,style,@"system_reattach_removed") evidence:@{}];
             NSData *before=NGMaterialPixels(material);
             wallpaper.phase++; [wallpaper setNeedsDisplay];
             for (NSUInteger i=0;i<100;i++) NGRefreshFixtureDock(dock);
@@ -56,15 +63,15 @@ void NGRunDockTests(NGRecorder *r, UIView *root, dispatch_block_t completion) {
             [dock removeFromSuperview]; NGRefreshFixtureDock(dock);
             BOOL retained=NGMaterial(dock)==material;
             [root addSubview:dock]; NGRefreshFixtureDock(dock);
-            [r check:retained && NGMaterial(dock)==material && dock.backgroundView.alpha==0 && material.alpha==alpha
+            [r check:retained && NGMaterial(dock)==material && !dock.backgroundView.superview && material.alpha==alpha
                 name:NGDockID(cls,style,@"window_transition_retains_layers") evidence:@{@"retained":@(retained)}];
             dock.hidden=YES; NGRefreshFixtureDock(dock); dock.hidden=NO;
             wallpaper.hidden=YES; NGRefreshFixtureDock(dock);
-            [r check:NGMaterial(dock)==material && material.alpha==alpha && dock.backgroundView.alpha==0
+            [r check:NGMaterial(dock)==material && material.alpha==alpha && !dock.backgroundView.superview
                 name:NGDockID(cls,style,@"works_without_wallpaper") evidence:@{}];
             [r capture:root name:NGDockID(cls,style,@"render")];
             NGWritePreferences(NO,NO,style); NGRefreshFixtureDock(dock);
-            [r check:!NGMaterial(dock) && fabs(dock.backgroundView.alpha-alpha)<0.001
+            [r check:!NGMaterial(dock) && dock.backgroundView.superview==dock && dock.subviews.firstObject==dock.backgroundView && fabs(dock.backgroundView.alpha-alpha)<0.001
                 name:NGDockID(cls,style,@"disable_restores_background") evidence:@{}];
             [dock removeFromSuperview]; [wallpaper removeFromSuperview];
         }

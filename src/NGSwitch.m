@@ -80,7 +80,9 @@ void NGRefreshSwitch(UISwitch *source) {
     CGPoint center = source.center;
     if (!CGSizeEqualToSize(binding.overlay.bounds.size,size)) binding.overlay.bounds = (CGRect){CGPointZero,size};
     if (!CGPointEqualToPoint(binding.overlay.center,center)) binding.overlay.center = center;
-    if (!CGAffineTransformEqualToTransform(binding.overlay.transform,source.transform)) binding.overlay.transform = source.transform;
+    // Keep the replacement at its original point size even when an app scales
+    // its native UISwitch down. Copying that transform shrinks the whole bridge.
+    if (!CGAffineTransformIsIdentity(binding.overlay.transform)) binding.overlay.transform = CGAffineTransformIdentity;
     binding.overlay.hidden = source.hidden;
     binding.overlay.userInteractionEnabled = source.userInteractionEnabled;
     binding.overlay.alpha = binding.originalAlpha;
