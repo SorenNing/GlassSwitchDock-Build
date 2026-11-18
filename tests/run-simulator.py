@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import platform
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -14,15 +15,28 @@ import time
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 
+STAGE = 'preflight'
+
+def stage(name):
+    global STAGE
+    STAGE = name
+    print(f'Native runner stage: {name}', flush=True)
+
 def command(args, *, env=None, check=True):
     result = subprocess.run([str(v) for v in args], text=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=env)
     if check and result.returncode:
+        print(f'::error title=Simulator command failed::{STAGE} (exit {result.returncode})', flush=True)
         raise RuntimeError(f'{args[0:4]} failed ({result.returncode}): {result.stderr[-6000:]}')
     return result
 
+class RunnerParser(argparse.ArgumentParser):
+    def error(self, message):
+        print(f'::error title=Simulator preflight failed::{STAGE}; inspect runner log for validation details.', flush=True)
+        super().error(message)
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = RunnerParser(description=__doc__)
     parser.add_argument('--app', type=Path, default=ROOT/'build/simulator/GlassSwitchDockHarness.app')
     parser.add_argument('--device', default='booted', help='Booted simulator or explicit UDID (no physical devices)')
     parser.add_argument('--output', type=Path, default=ROOT/'evidence/native-regression')
@@ -39,6 +53,7 @@ def main():
     if args.timeout <= 0 or args.timeout > 600: parser.error('--timeout must be in (0, 600]')
     for bundle in (app/'GlassSwitchDockResources.bundle', app/'GlassSwitchDockResources.bundle/GlassifyShaders.bundle'):
         if not (bundle/'default.metallib').is_file(): parser.error(f'Missing original compiled shader resource: {bundle}')
+    stage('device-list')
     available = json.loads(command(['xcrun','simctl','list','devices','available','--json']).stdout)
     devices = [d for group in available['devices'].values() for d in group if d.get('isAvailable', True)]
     if args.device == 'booted':
@@ -50,8 +65,11 @@ def main():
         if match is None: parser.error('--device must be an available iOS Simulator UDID')
         device = match['udid']
         if match['state'] != 'Booted': command(['xcrun','simctl','boot',device])
+    stage('device-bootstatus')
     command(['xcrun','simctl','bootstatus',device,'-b'])
+    stage('app-install')
     command(['xcrun','simctl','install',device,app])
+    stage('app-container')
     container = Path(command(['xcrun','simctl','get_app_container',device,bundle_id,'data']).stdout.strip())
     sandbox_output = container/'Documents/NGRegression'
     sandbox_output.mkdir(parents=True, exist_ok=True)
@@ -68,12 +86,25 @@ def main():
     env['SIMCTL_CHILD_NG_TEST_OUTPUT'] = str(sandbox_output)
     env['SIMCTL_CHILD_NG_TEST_PREFS'] = str(container/'tmp/NGRegression-preferences.plist')
     command(['xcrun','simctl','terminate',device,bundle_id], check=False)
+    stage('app-launch')
     launch = command(['xcrun','simctl','launch','--terminate-running-process',
                       '--stdout='+str(output/'stdout.log'),'--stderr='+str(output/'stderr.log'),device,bundle_id], env=env)
     (output/'launch.txt').write_text(launch.stdout+launch.stderr)
+    stage('report-wait')
     deadline = time.monotonic()+args.timeout
     while not stale.is_file():
         if time.monotonic() >= deadline:
+            print('::error title=Simulator report timeout::App launch succeeded but no report was written before timeout.', flush=True)
+            markers = []
+            for name in ('stdout.log', 'stderr.log'):
+                log = output/name
+                if log.is_file():
+                    markers += re.findall(r'\[NGRegression\] (PASS|FAIL) ([A-Za-z0-9._-]{1,180})(?=\s|$)', log.read_text(errors='replace'))
+            if markers:
+                outcome, identifier = markers[-1]
+                print(f'::error title=Simulator last assertion::{outcome} {identifier}', flush=True)
+            else:
+                print('::error title=Simulator progress unavailable::No regression assertion marker was captured before timeout.', flush=True)
             (output/'runner-error.json').write_text(json.dumps({'status':'failed','reason':'timeout or crash before report', 'nativeExecuted':True,'timeoutSeconds':args.timeout},indent=2)+'\n')
             command(['xcrun','simctl','io',device,'screenshot',output/'timeout-screen.png'],check=False)
             command(['xcrun','simctl','terminate',device,bundle_id],check=False)
@@ -90,4 +121,5 @@ def main():
 if __name__ == '__main__':
     try: sys.exit(main())
     except (RuntimeError,ValueError,KeyError,OSError) as error:
+        print(f'::error title=Simulator runner failed::{STAGE}; inspect runner log for details.', flush=True)
         print(f'Native regression failed: {error}',file=sys.stderr); sys.exit(1)
