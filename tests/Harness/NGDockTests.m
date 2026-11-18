@@ -81,7 +81,7 @@ static void NGRunDockCase(NGRecorder *r, UIView *root, NSUInteger index, dispatc
             }
             [r check:before.length>0 && transparent>0 && translucent>0 && colored==translucent && maxAlpha>minAlpha+20 && maxAlpha<255
                 name:NGDockID(cls,style,@"real_gpu_rgba_without_black_backing")
-                evidence:@{@"bytes":@(before.length),@"transparent":@(transparent),@"translucent":@(translucent),@"minAlpha":@(minAlpha),@"maxAlpha":@(maxAlpha)}];
+                evidence:@{@"bytes":@(before.length),@"transparent":@(transparent),@"translucent":@(translucent),@"colored":@(colored),@"minAlpha":@(minAlpha),@"maxAlpha":@(maxAlpha)}];
             NSUInteger requests=[NGDockDiagnostics(dock)[@"renderRequests"] unsignedIntegerValue];
             wallpaper.phase++; [wallpaper setNeedsDisplay];
             for (NSUInteger i=0;i<100;i++) NGRefreshFixtureDock(dock);

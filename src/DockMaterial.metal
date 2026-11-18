@@ -24,6 +24,12 @@ kernel void ngDockMaterial(texture2d<float, access::write> output [[texture(0)]]
     float alpha = ((p.dark != 0 ? 0.015 : 0.025) + 0.22 * light + 0.16 * reflection + 0.09 * thickness) * strength;
     alpha = clamp(alpha * coverage, 0.0, 0.8);
     float3 tint = mix(float3(0.64, 0.71, 0.80), float3(1.0), clamp(0.75 + light + reflection - thickness * 0.55, 0.0, 1.0));
-    // Premultiplied RGBA. Outside is transparent, never an opaque black base.
-    output.write(float4(tint * alpha, alpha), gid);
+    // Quantize premultiplied channels together. Independent UNorm rounding
+    // can retain alpha=1/255 while rounding a tinted channel to zero at the
+    // antialiased edge. Keep every covered pixel colored and RGB <= alpha.
+    float alphaByte = floor(alpha * 255.0 + 0.5);
+    float3 rgbByte = alphaByte > 0.0
+        ? clamp(floor(tint * alphaByte + 0.5), float3(1.0), float3(alphaByte))
+        : float3(0.0);
+    output.write(float4(rgbByte, alphaByte) / 255.0, gid);
 }
