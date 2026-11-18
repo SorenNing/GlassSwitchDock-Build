@@ -11,12 +11,17 @@ static void NGFixtureInstall(Class cls, SEL sel, IMP replacement, IMP *original)
 // synthetic app fixture, not evidence of WeChat's actual control hierarchy.
 @interface NGAppSwitchFixture : UISwitch
 @property(nonatomic) BOOL fixtureOn;
+@property(nonatomic,copy) void (^fixtureAccessibilityWrite)(void);
 @end
 @implementation NGAppSwitchFixture
 - (void)layoutSubviews {}
 - (BOOL)isOn { return self.fixtureOn; }
 - (void)setOn:(BOOL)value { self.fixtureOn=value; }
 - (void)setOn:(BOOL)value animated:(BOOL)animated { self.on=value; [self layoutSubviews]; }
+- (void)setIsAccessibilityElement:(BOOL)value {
+    [super setIsAccessibilityElement:value];
+    if (self.fixtureAccessibilityWrite) self.fixtureAccessibilityWrite();
+}
 @end
 
 static BOOL NGComponentOn(UIView *component, NSInteger style) {
@@ -201,6 +206,19 @@ void NGRunSwitchTests(NGRecorder *r, UIView *root) {
     [r check:appComponent && NGComponentOn(appComponent,0) && appSwitch.on
            name:@"switch.theseus.subclass_override_without_super"
            evidence:@{@"sourceClass":NSStringFromClass(appSwitch.class),@"componentFound":@(appComponent!=nil),@"on":@(appSwitch.on)}];
+    __block BOOL finalRefreshDeferred=NO;
+    __weak NGAppSwitchFixture *weakAppSwitch=appSwitch;
+    appSwitch.isAccessibilityElement=YES;
+    appSwitch.fixtureAccessibilityWrite=^{
+        NGAppSwitchFixture *source=weakAppSwitch;
+        source.on=NO;
+        finalRefreshDeferred=NGComponentOn(appComponent,0);
+    };
+    NGBeginSwitchUpdate(appSwitch,YES); NGEndSwitchUpdate(appSwitch);
+    appSwitch.fixtureAccessibilityWrite=nil;
+    [r check:finalRefreshDeferred && !NGComponentOn(appComponent,0) && !appSwitch.on
+           name:@"switch.theseus.final_refresh_nested_setter_defers_sync"
+           evidence:@{@"deferred":@(finalRefreshDeferred),@"on":@(appSwitch.on)}];
     NGRemoveSwitch(appSwitch); [appSwitch removeFromSuperview];
     NGWritePreferences(NO, NO, 0); NGRemoveSwitch(a); NGRemoveSwitch(b);
     [fixture removeFromSuperview];

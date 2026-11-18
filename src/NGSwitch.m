@@ -23,7 +23,10 @@ void NGBeginSwitchUpdate(UISwitch *source, BOOL animated) {
 
 void NGEndSwitchUpdate(UISwitch *source) {
     NGSwitchUpdate *update = objc_getAssociatedObject(source, &kNGUpdateKey);
-    if (!update || --update.depth) return;
+    if (!update) return;
+    if (update.depth > 1) { update.depth--; return; }
+    // Keep the outer transaction active while final geometry refresh invokes
+    // subclass setters; their nested completion must not finalize this update.
     // Geometry callbacks during the original setter must not consume the state
     // change with an unanimated sync before the outer animated setter returns.
     @try { NGRefreshSwitch(source); }
