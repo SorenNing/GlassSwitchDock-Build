@@ -27,9 +27,10 @@ static void NGAwaitDock(NGRecorder *r, UIView *dock, NSDate *deadline, dispatch_
     });
 }
 static void NGRunDockCase(NGRecorder *r, UIView *root, NSUInteger index, dispatch_block_t completion) {
-    if (index==4) { completion(); return; }
+    if (index==4) { NSLog(@"[NGRegression] STAGE dock.finish"); completion(); return; }
     Class cls=index<2 ? SBDockView.class : SBFloatingDockPlatterView.class;
     NSInteger style=index%2;
+    NSLog(@"[NGRegression] STAGE %@",NGDockID(cls,style,@"begin"));
     @try {
             NGPatternView *wallpaper=[[NGPatternView alloc] initWithFrame:root.bounds];
             [root insertSubview:wallpaper atIndex:0];
@@ -119,7 +120,9 @@ static void NGRunDockCase(NGRecorder *r, UIView *root, NSUInteger index, dispatc
             NGWritePreferences(NO,NO,style); NGRefreshFixtureDock(dock);
             [r check:!NGMaterial(dock) && dock.backgroundView.superview==dock && dock.subviews.firstObject==dock.backgroundView && fabs(dock.backgroundView.alpha-alpha)<0.001
                 name:NGDockID(cls,style,@"disable_restores_background") evidence:@{}];
+            NSLog(@"[NGRegression] STAGE %@",NGDockID(cls,style,@"cleanup"));
             [dock removeFromSuperview]; [wallpaper removeFromSuperview];
+            NSLog(@"[NGRegression] STAGE %@",NGDockID(cls,style,@"end"));
             dispatch_async(dispatch_get_main_queue(), ^{ NGRunDockCase(r,root,index+1,completion); });
             });
             });

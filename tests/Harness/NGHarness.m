@@ -48,8 +48,29 @@
         @"limitations": @[@"Does not load SpringBoard or exercise real icon layout.",
             @"Synthetic UIControl tracking and vendor scripting exercise original component logic; this is not HID/XCUITest touch delivery.",
             @"PNG snapshots need visual inspection; shader execution and original rendering backends are asserted separately."]};
-    NSData *json = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:nil];
-    [json writeToFile:[_output stringByAppendingPathComponent:@"report.json"] atomically:YES];
+    NSLog(@"[NGRegression] STAGE report.serialize");
+    NSError *error = nil;
+    NSData *json = nil;
+    @try {
+        json = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:&error];
+    } @catch (NSException *exception) {
+        error = [NSError errorWithDomain:@"NGRegressionReport" code:1 userInfo:@{NSLocalizedDescriptionKey:exception.reason ?: exception.name}];
+    }
+    if (!json) {
+        [self check:NO name:@"report.serialization_failed" evidence:@{@"error":error.localizedDescription ?: @"unknown"}];
+        // A minimal failed report preserves the error. Missing required checks
+        // remain failures in validate-report.py; never invent a passing report.
+        NSDictionary *failed = @{@"schema":@1,@"status":@"failed",@"failures":@(_failures),
+            @"checks":@[@{@"id":@"report.serialization_failed",@"passed":@NO}],
+            @"error":error.localizedDescription ?: @"unknown"};
+        json = [NSJSONSerialization dataWithJSONObject:failed options:0 error:&error];
+    }
+    NSLog(@"[NGRegression] STAGE report.write");
+    BOOL wrote = json && [json writeToFile:[_output stringByAppendingPathComponent:@"report.json"] options:NSDataWritingAtomic error:&error];
+    if (!wrote) {
+        [self check:NO name:@"report.write_failed" evidence:@{@"error":error.localizedDescription ?: @"unknown"}];
+        return;
+    }
     NSLog(@"[NGRegression] COMPLETE failures=%lu report=%@/report.json", (unsigned long)_failures, _output);
 }
 @end

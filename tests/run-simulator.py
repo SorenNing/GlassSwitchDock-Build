@@ -96,10 +96,15 @@ def main():
         if time.monotonic() >= deadline:
             print('::error title=Simulator report timeout::App launch succeeded but no report was written before timeout.', flush=True)
             markers = []
+            stages = []
             for name in ('stdout.log', 'stderr.log'):
                 log = output/name
                 if log.is_file():
-                    markers += re.findall(r'\[NGRegression\] (PASS|FAIL) ([A-Za-z0-9._-]{1,180})(?=\s|$)', log.read_text(errors='replace'))
+                    text = log.read_text(errors='replace')
+                    markers += re.findall(r'\[NGRegression\] (PASS|FAIL) ([A-Za-z0-9._-]{1,180})(?=\s|$)', text)
+                    stages += re.findall(r'\[NGRegression\] STAGE ([A-Za-z0-9._-]{1,180})(?=\s|$)', text)
+            if stages:
+                print(f'::error title=Simulator last boundary::{stages[-1]}', flush=True)
             if markers:
                 outcome, identifier = markers[-1]
                 print(f'::error title=Simulator last assertion::{outcome} {identifier}', flush=True)
