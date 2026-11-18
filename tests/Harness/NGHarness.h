@@ -13,6 +13,7 @@
 + (BOOL)activate:(UIView *)view;
 + (BOOL)drag:(UIView *)view toOn:(BOOL)on;
 + (NSDictionary *)settings;
++ (NSDictionary *)presentation:(UIView *)view;
 + (NSDictionary *)lifecycle:(UIView *)view;
 @end
 

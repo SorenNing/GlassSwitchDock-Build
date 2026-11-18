@@ -56,9 +56,13 @@ static NSHashTable<UISwitch *> *NGSeenSwitches(void) {
     if (!source || !source.enabled || !source.userInteractionEnabled || self.forwarding || !NGSwitchEnabled() || self.overlay.hidden) return;
     if (source.isOn == value) return;
     self.forwarding = YES;
-    @try { [source setOn:value animated:NO]; }
-    @finally { self.forwarding = NO; }
-    [source sendActionsForControlEvents:UIControlEventValueChanged];
+    @try {
+        [source setOn:value animated:NO];
+        // Targets may write transient values and trigger layout before deciding
+        // whether to accept the user's change. Keep the active presentation
+        // intact until every synchronous target has returned.
+        [source sendActionsForControlEvents:UIControlEventValueChanged];
+    } @finally { self.forwarding = NO; }
     // A target may synchronously reject a value; mirror its actual final state.
     NGSyncSwitch(source, NO);
 }

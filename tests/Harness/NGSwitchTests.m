@@ -24,6 +24,14 @@ static void NGFixtureInstall(Class cls, SEL sel, IMP replacement, IMP *original)
 }
 @end
 
+@interface NGAppCallbackFixture : NSObject
+@property(nonatomic,copy) void (^callback)(UISwitch *);
+- (void)changed:(UISwitch *)source;
+@end
+@implementation NGAppCallbackFixture
+- (void)changed:(UISwitch *)source { if (self.callback) self.callback(source); }
+@end
+
 static BOOL NGComponentOn(UIView *component, NSInteger style) {
     return [[NGTheseusProbe inspectSwitch:component][@"isOn"] boolValue];
 }
@@ -219,6 +227,41 @@ void NGRunSwitchTests(NGRecorder *r, UIView *root) {
     [r check:finalRefreshDeferred && !NGComponentOn(appComponent,0) && !appSwitch.on
            name:@"switch.theseus.final_refresh_nested_setter_defers_sync"
            evidence:@{@"deferred":@(finalRefreshDeferred),@"on":@(appSwitch.on)}];
+    NGEventSpy *appSpy=[NGEventSpy new];
+    NGAppCallbackFixture *target=[NGAppCallbackFixture new];
+    [appSwitch addTarget:appSpy action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
+    [appSwitch addTarget:target action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
+    NSArray<NSString *> *callbackCases=@[@"callback_accept_same_state", @"callback_transient_reject_then_accept", @"callback_reject_restores_state"];
+    for (NSUInteger mode=0; mode<callbackCases.count; mode++) {
+        [appSwitch setOn:NO animated:NO];
+        NGPump(0.2);
+        NSUInteger beforeEvents=appSpy.count;
+        __block BOOL preserved=YES, observed=NO;
+        target.callback=^(UISwitch *source) {
+            NSDictionary *before=[NGTheseusProbe presentation:appComponent];
+            observed=[before[@"lensVisible"] boolValue];
+            if (mode!=0) {
+                [source setOn:NO animated:NO]; [source layoutSubviews];
+                preserved=preserved && NGComponentOn(appComponent,0) &&
+                    [[NGTheseusProbe presentation:appComponent] isEqual:before];
+            }
+            if (mode!=2) [source setOn:YES animated:NO];
+            [source setOn:source.on animated:NO]; [source layoutSubviews];
+            preserved=preserved && NGComponentOn(appComponent,0) &&
+                [[NGTheseusProbe presentation:appComponent] isEqual:before];
+        };
+        BOOL interacted=[NGTheseusProbe drag:appComponent toOn:YES];
+        target.callback=nil;
+        BOOL accepted=mode!=2;
+        BOOL targetMatches=[[NGTheseusProbe presentation:appComponent][@"releaseTargetMatchesState"] boolValue];
+        [r check:interacted && observed && preserved && targetMatches && appSwitch.on==accepted &&
+                 NGComponentOn(appComponent,0)==accepted && appSpy.count==beforeEvents+1
+               name:NGID(0,callbackCases[mode])
+               evidence:@{@"presentationObserved":@(observed),@"preservedDuringTargets":@(preserved),
+                          @"accepted":@(accepted),@"events":@(appSpy.count-beforeEvents),
+                          @"sourceOn":@(appSwitch.on),@"componentOn":@(NGComponentOn(appComponent,0))}];
+    }
+    [appSwitch removeTarget:target action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
     NGRemoveSwitch(appSwitch); [appSwitch removeFromSuperview];
     NGWritePreferences(NO, NO, 0); NGRemoveSwitch(a); NGRemoveSwitch(b);
     [fixture removeFromSuperview];

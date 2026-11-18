@@ -7,7 +7,7 @@ import sys
 
 SWITCH = ('original_identity','original_defaults','original_size_63x28','scaled_host_preserves_visible_size','scaled_parent_preserves_window_size','glass_lifecycle_scaled_parent','moved_host_center_alignment','initial_sync_silent',
           'user_tap_exactly_one_native_event','unrelated_controls_unchanged',
-          'drag_commits_exactly_one_native_event','nested_setter_defers_state_sync','subclass_override_without_super','final_refresh_nested_setter_defers_sync','disabled_ignores_user_input','reenabled',
+          'drag_commits_exactly_one_native_event','nested_setter_defers_state_sync','subclass_override_without_super','final_refresh_nested_setter_defers_sync','callback_accept_same_state','callback_transient_reject_then_accept','callback_reject_restores_state','disabled_ignores_user_input','reenabled',
           'reenable_detaches_old_preserves_state','refresh_is_idempotent',
           'reparent_removes_old_sibling','source_detach_removes_overlay',
           'disable_restores_native_state','restore_saved_nondefault_host_properties')

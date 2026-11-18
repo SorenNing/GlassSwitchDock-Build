@@ -9,6 +9,16 @@ def replace_once(text, old, new):
 
 
 def switch_source(text):
+    # An app target can reject the commit synchronously. The return path must
+    # land at the accepted state, rather than the pre-callback local value.
+    text = replace_once(text, '''        let finalThumbFrame = thumbFrame(x: newValue ? thumbOnX : thumbOffX)
+        setThumbX''', '''        let finalThumbFrame = thumbFrame(x: _isOn ? thumbOnX : thumbOffX)
+        setThumbX''')
+    text = replace_once(text, '''        let finalThumbFrame = thumbFrame(x: newValue ? thumbOnX : thumbOffX)
+
+        if cancelled''', '''        let finalThumbFrame = thumbFrame(x: _isOn ? thumbOnX : thumbOffX)
+
+        if cancelled''')
     text = replace_once(text, '    private var glassRevealed = false', '''    private var glassRevealed = false
     private var presentationGeneration = 0''')
     start = text.index('    private var theseusSourceView: UIView? {')
@@ -51,6 +61,12 @@ def switch_source(text):
                   self.theseusView === glass else { return }
             guard !self.isLensVisible else {''')
     text = replace_once(text, '''    private func teardownGlass() {''', '''    #if NG_TESTING
+    func ngPresentationState() -> [String: Any] {
+        return ["generation": presentationGeneration, "lensVisible": isLensVisible,
+                "glassRevealed": glassRevealed, "releaseGeneration": releaseGeneration,
+                "releaseTargetMatchesState": abs((pendingThumbX ?? releaseTargetX) - (_isOn ? thumbOnX : thumbOffX)) < 0.01]
+    }
+
     func ngLifecycleRegression() -> [String: Any] {
         setupGlassIfNeeded()
         let sharesContainer = theseusView?.superview === superview
