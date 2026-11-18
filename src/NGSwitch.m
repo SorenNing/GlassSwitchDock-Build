@@ -1,6 +1,7 @@
 #import "Bridge.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <math.h>
 
 static char kNGBindingKey;
 static NSHashTable<UISwitch *> *NGSeenSwitches(void) {
@@ -80,9 +81,19 @@ void NGRefreshSwitch(UISwitch *source) {
     CGPoint center = source.center;
     if (!CGSizeEqualToSize(binding.overlay.bounds.size,size)) binding.overlay.bounds = (CGRect){CGPointZero,size};
     if (!CGPointEqualToPoint(binding.overlay.center,center)) binding.overlay.center = center;
-    // Keep the replacement at its original point size even when an app scales
-    // its native UISwitch down. Copying that transform shrinks the whole bridge.
-    if (!CGAffineTransformIsIdentity(binding.overlay.transform)) binding.overlay.transform = CGAffineTransformIdentity;
+    // Measure ancestor scale in window points, independently of the native
+    // switch and the overlay's own transform. Preserve the original visible
+    // track size even inside a scaled settings row/container.
+    CGPoint origin=[parent convertPoint:CGPointZero toView:source.window];
+    CGPoint x=[parent convertPoint:CGPointMake(1,0) toView:source.window];
+    CGPoint y=[parent convertPoint:CGPointMake(0,1) toView:source.window];
+    CGFloat sx=hypot(x.x-origin.x,x.y-origin.y);
+    CGFloat sy=hypot(y.x-origin.x,y.y-origin.y);
+    CGAffineTransform compensation=CGAffineTransformIdentity;
+    if (isfinite(sx) && isfinite(sy) && sx>0.01 && sy>0.01)
+        compensation=CGAffineTransformMakeScale(1/sx,1/sy);
+    if (!CGAffineTransformEqualToTransform(binding.overlay.transform,compensation))
+        binding.overlay.transform=compensation;
     binding.overlay.hidden = source.hidden;
     binding.overlay.userInteractionEnabled = source.userInteractionEnabled;
     binding.overlay.alpha = binding.originalAlpha;

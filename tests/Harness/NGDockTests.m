@@ -37,6 +37,12 @@ void NGRunDockTests(NGRecorder *r, UIView *root, dispatch_block_t completion) {
             [r check:CGRectEqualToRect(material.frame,dock.backgroundView.frame) &&
                 material.layer.sublayers.firstObject.cornerRadius==30
                 name:NGDockID(cls,style,@"host_geometry") evidence:@{@"frame":NSStringFromCGRect(material.frame)}];
+            CALayer *face=material.layer.sublayers.firstObject;
+            CALayer *rim=material.layer.sublayers.lastObject.mask;
+            [r check:[face.cornerCurve isEqualToString:dock.backgroundView.layer.cornerCurve] &&
+                [rim.cornerCurve isEqualToString:face.cornerCurve] && rim.cornerRadius==face.cornerRadius &&
+                rim.maskedCorners==face.maskedCorners && fabs(rim.borderWidth-0.5)<0.001
+                name:NGDockID(cls,style,@"native_corners_and_half_point_rim") evidence:@{}];
             [r check:!material.userInteractionEnabled && !material.isAccessibilityElement
                 name:NGDockID(cls,style,@"no_touch_interception") evidence:@{}];
             UIView *hit=[dock hitTest:[dock.icon convertPoint:CGPointMake(26,26) toView:dock] withEvent:nil];

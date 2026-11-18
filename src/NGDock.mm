@@ -7,8 +7,10 @@
 @interface NGStaticDockView : UIView
 @property(nonatomic,strong) CAGradientLayer *face;
 @property(nonatomic,strong) CAGradientLayer *rim;
-@property(nonatomic,strong) CAShapeLayer *rimMask;
+@property(nonatomic,strong) CALayer *rimMask;
 @property(nonatomic) CGFloat radius;
+@property(nonatomic,copy) NSString *cornerCurve;
+@property(nonatomic) CACornerMask roundedCorners;
 @property(nonatomic) NSInteger style;
 - (void)updatePalette;
 @end
@@ -24,10 +26,10 @@
         [self.layer addSublayer:_face];
         _rim=[CAGradientLayer layer];
         _rim.locations=@[@0,@0.45,@1];
-        _rimMask=[CAShapeLayer layer];
-        _rimMask.fillColor=UIColor.clearColor.CGColor;
-        _rimMask.strokeColor=UIColor.whiteColor.CGColor;
-        _rimMask.lineWidth=1;
+        _rimMask=[CALayer layer];
+        _rimMask.backgroundColor=UIColor.clearColor.CGColor;
+        _rimMask.borderColor=UIColor.whiteColor.CGColor;
+        _rimMask.borderWidth=0.5;
         _rim.mask=_rimMask;
         [self.layer addSublayer:_rim];
         [self updatePalette];
@@ -55,11 +57,13 @@
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     self.face.frame=self.bounds;
     self.face.cornerRadius=self.radius;
-    self.face.cornerCurve=kCACornerCurveContinuous;
+    self.face.cornerCurve=self.cornerCurve ?: kCACornerCurveContinuous;
+    self.face.maskedCorners=self.roundedCorners;
     self.rim.frame=self.bounds;
     self.rimMask.frame=self.bounds;
-    self.rimMask.path=[UIBezierPath bezierPathWithRoundedRect:CGRectInset(self.bounds,0.5,0.5)
-        cornerRadius:MAX(0,self.radius-0.5)].CGPath;
+    self.rimMask.cornerRadius=self.radius;
+    self.rimMask.cornerCurve=self.face.cornerCurve;
+    self.rimMask.maskedCorners=self.roundedCorners;
     [CATransaction commit];
 }
 @end
@@ -148,11 +152,21 @@ void NGRefreshDock(UIView *dock) {
     // The detached view retains system-owned geometry, but cannot composite.
     CGRect frame=background.frame;
     if (!CGRectEqualToRect(glass.frame,frame)) glass.frame=frame;
-    CGFloat radius=background.layer.cornerRadius;
-    if (radius<=0) for (UIView *child in background.subviews) radius=MAX(radius,child.layer.cornerRadius);
+    CALayer *geometry=background.layer;
+    if (geometry.cornerRadius<=0) {
+        for (UIView *child in background.subviews)
+            if (child.layer.cornerRadius>geometry.cornerRadius) geometry=child.layer;
+    }
     CGFloat limit=MIN(background.bounds.size.width,background.bounds.size.height)/2;
-    radius=radius>0 ? MIN(radius,limit) : limit;
-    if (glass.radius!=radius) { glass.radius=radius; [glass setNeedsLayout]; }
+    CGFloat radius=geometry.cornerRadius>0 ? MIN(geometry.cornerRadius,limit) : limit;
+    NSString *curve=geometry.cornerCurve;
+    CACornerMask corners=geometry.maskedCorners;
+    if (glass.radius!=radius || ![glass.cornerCurve isEqualToString:curve] || glass.roundedCorners!=corners) {
+        glass.radius=radius;
+        glass.cornerCurve=curve;
+        glass.roundedCorners=corners;
+        [glass setNeedsLayout];
+    }
     NSInteger style=NGDockStyle();
     if (glass.style!=style) { glass.style=style; [glass updatePalette]; }
     glass.hidden=binding.backgroundHidden;

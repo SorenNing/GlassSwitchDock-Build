@@ -66,6 +66,13 @@ void NGRunSwitchTests(NGRecorder *r, UIView *root) {
         [r check:fabs(visible.size.width-63)<0.01 && fabs(visible.size.height-28)<0.01
                name:NGID(style, @"scaled_host_preserves_visible_size")
            evidence:@{@"visible":NSStringFromCGRect(visible)}];
+        fixture.transform=CGAffineTransformMakeScale(0.65,0.8);
+        NGRefreshSwitch(a); [component.superview layoutIfNeeded];
+        CGRect windowSize=[component convertRect:component.bounds toView:root.window];
+        [r check:fabs(windowSize.size.width-63)<0.01 && fabs(windowSize.size.height-28)<0.01
+               name:NGID(style, @"scaled_parent_preserves_window_size")
+           evidence:@{@"windowBounds":NSStringFromCGRect(windowSize)}];
+        fixture.transform=CGAffineTransformIdentity;
         a.transform=CGAffineTransformIdentity; NGRefreshSwitch(a);
         [r check:!NGComponentOn(component, style) && NGComponentOn(second, style) && spyA.count == 0
                name:NGID(style, @"initial_sync_silent") evidence:NGState(a, component, style, spyA)];
