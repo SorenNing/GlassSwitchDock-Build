@@ -63,6 +63,27 @@ def command(args, *, env=None, check=True, timeout=60):
         raise RuntimeError(f'{args[0:4]} failed ({result.returncode}): {error[-6000:]}')
     return result
 
+def select_auto_device(devices, sdk_version):
+    """Prefer a running phone, then the selected Xcode's runtime, then newest."""
+    def version(runtime):
+        suffix = runtime.rsplit('.iOS-', 1)[-1]
+        return tuple(int(part) for part in suffix.split('-') if part.isdigit())
+    sdk = tuple(int(part) for part in sdk_version.strip().split('.') if part.isdigit())
+    phones = [d for d in devices if 'iPhone' in d['name']]
+    if not phones:
+        raise RuntimeError('No available iPhone simulator')
+    return min(phones, key=lambda d: (
+        d['state'] != 'Booted', version(d['runtime']) != sdk,
+        tuple(-part for part in version(d['runtime'])), d['name']))
+
+
+def wait_for_boot(device, timeout):
+    # Cold CI runtimes spend several minutes migrating system apps. Keep that
+    # budget separate from the app's regression deadline and never erase/reboot
+    # the device while migration is making progress.
+    command(['xcrun','simctl','bootstatus',device,'-b'], timeout=timeout)
+
+
 def main():
     global COMMAND_OUTPUT
     parser = argparse.ArgumentParser(description=__doc__)
@@ -70,6 +91,8 @@ def main():
     parser.add_argument('--device', default='booted', help='auto, booted, or explicit simulator UDID (no physical devices)')
     parser.add_argument('--output', type=Path, default=ROOT/'evidence/native-regression')
     parser.add_argument('--timeout', type=float, default=120)
+    parser.add_argument('--boot-timeout', type=float, default=600,
+                        help='Separate cold-start/migration budget in seconds (default: 600)')
     args = parser.parse_args()
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=True)
     COMMAND_OUTPUT = output
@@ -82,15 +105,17 @@ def main():
     bundle_id = info['CFBundleIdentifier']
     if bundle_id != 'com.minis.GlassSwitchDockHarness': parser.error('Refusing to replace a non-harness app')
     if args.timeout <= 0 or args.timeout > 600: parser.error('--timeout must be in (0, 600]')
+    if args.boot_timeout <= 0 or args.boot_timeout > 900: parser.error('--boot-timeout must be in (0, 900]')
     for bundle in (app/'GlassSwitchDockResources.bundle', app/'GlassSwitchDockResources.bundle/GlassifyShaders.bundle'):
         if not (bundle/'default.metallib').is_file(): parser.error(f'Missing original compiled shader resource: {bundle}')
     available = json.loads(command(['xcrun','simctl','list','devices','available','--json']).stdout)
     (output/'devices.json').write_text(json.dumps(available,indent=2)+'\n')
-    devices = [d for runtime,group in available['devices'].items() if 'iOS' in runtime for d in group if d.get('isAvailable', True)]
+    devices = [dict(d, runtime=runtime) for runtime,group in available['devices'].items() if '.iOS-' in runtime for d in group if d.get('isAvailable', True)]
     if args.device == 'auto':
-        iphones = sorted((d for d in devices if 'iPhone' in d['name']), key=lambda d:(d['state']!='Booted',d['name']))
-        if not iphones: parser.error('No available iPhone simulator')
-        args.device = iphones[0]['udid']
+        sdk_version = command(['xcrun','--sdk','iphonesimulator','--show-sdk-version']).stdout.strip()
+        selected = select_auto_device(devices, sdk_version)
+        (output/'selected-device.json').write_text(json.dumps(selected, indent=2)+'\n')
+        args.device = selected['udid']
     if args.device == 'booted':
         booted = [d for d in devices if d['state']=='Booted']
         if len(booted) != 1: parser.error('Use --device UDID when zero or multiple simulators are booted')
@@ -100,7 +125,7 @@ def main():
         if match is None: parser.error('--device must be an available iOS Simulator UDID')
         device = match['udid']
         if match['state'] != 'Booted': command(['xcrun','simctl','boot',device])
-    command(['xcrun','simctl','bootstatus',device,'-b'], timeout=240)
+    wait_for_boot(device, args.boot_timeout)
     command(['xcrun','simctl','install',device,app], timeout=120)
     container = Path(command(['xcrun','simctl','get_app_container',device,bundle_id,'data']).stdout.strip())
     sandbox_output = container/'Documents/NGRegression'
