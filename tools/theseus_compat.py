@@ -14,7 +14,7 @@ def switch_source(text):
     start = text.index('    private var theseusSourceView: UIView? {')
     end = text.index('    private func convertToTheseusContainer(', start)
     text = replace_once(text, text[start:end], '''    // Keep capture and glass in the control's actual window and local hierarchy.
-    private var theseusSourceView: UIView? { superview?.superview }
+    private var theseusSourceView: UIView? { self }
     private var theseusContainer: UIView? { superview?.superview }
 
 ''')
@@ -65,6 +65,27 @@ def switch_source(text):
     }
 
     public override func didMoveToWindow() {''')
+    text = replace_once(text, '\n        glass.sourceView = sourceView\n', '''
+        glass.sourceView = sourceView
+        // Capture only this 63 x 28 control. An opaque semantic base prevents
+        // transparent app containers becoming black in the refraction shader.
+        // Hide the thumb in the CPU capture, never in a presented transaction.
+        glass.captureWillBegin = { [weak self] in
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self?.contentView.backgroundColor = .secondarySystemGroupedBackground
+            self?.thumbLayer.isHidden = true
+        }
+        glass.captureDidEnd = { [weak self] in
+            if let self = self {
+                self.contentView.backgroundColor = .clear
+                self.thumbLayer.isHidden = false
+            }
+            CATransaction.commit()
+        }
+''')
+    text = replace_once(text, '        if let sourceView = theseusSourceView, sourceView.bounds.width > 0 {',
+                        '        if let sourceView = theseusSourceView, sourceView.bounds.width > 0, glass.sourceView !== sourceView {')
     return text
 
 

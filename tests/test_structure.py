@@ -63,7 +63,8 @@ class Structure(unittest.TestCase):
         self.assertNotIn('NGSwitchStyle',text('src/Bridge.h'))
     def test_material_defaults_and_no_demo_controls(self):
         dock=text('src/NGDock.mm')
-        self.assertIn('GLSGlassStyleClear',dock); self.assertIn('UIColor.secondarySystemFillColor',dock)
+        self.assertIn('CAGradientLayer',dock); self.assertIn('NGStaticDockView',dock)
+        self.assertNotRegex(dock,r'NGWallpaperBackdrop|NSTimer|GLSGlassView|MTLCommand|UIVisualEffectView')
         self.assertNotRegex(dock,r'GLSGlassButton\s*\*|UILabel|UISlider|GLSSlider|TheseusSlider|setTitle:|\.font\s*=')
         self.assertRegex(dock,r'userInteractionEnabled\s*=\s*NO')
         self.assertRegex(dock,r'isAccessibilityElement\s*=\s*NO')
@@ -88,6 +89,6 @@ class Structure(unittest.TestCase):
         for name in ('main.m','NGSwitchTests.m','NGDockTests.m','NGResourceTests.m','NGTheseusProbe.swift'):
             self.assertTrue((ROOT/'tests/Harness'/name).is_file())
         self.assertIn('actual_shader_execution_readback',text('tests/Harness/NGResourceTests.m'))
-        self.assertIn('backdrop_change_changes_real_gpu_pixels',text('tests/Harness/NGDockTests.m'))
+        self.assertIn('wallpaper_change_preserves_pixels',text('tests/Harness/NGDockTests.m'))
 
 if __name__=='__main__': unittest.main()

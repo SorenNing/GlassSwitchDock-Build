@@ -11,10 +11,9 @@ SWITCH = ('original_identity','original_defaults','original_size_63x28','initial
           'reenable_detaches_old_preserves_state','refresh_is_idempotent',
           'reparent_removes_old_sibling','source_detach_removes_overlay',
           'disable_restores_native_state','restore_saved_nondefault_host_properties')
-DOCK = ('actual_original_material','clear_optics_with_neutral_side_band','container_geometry_only',
-        'side_band_darkening_removed','actual_metal_backend_no_fallback','material_has_no_labels_sliders_or_touch_interception',
-        'dock_icon_hit_test_preserved','backdrop_change_changes_real_gpu_pixels','refresh_idempotent',
-        'wallpaper_only_valid_frame','server_wallpaper_fixture','initial_failure_retains_native_background','transient_failure_retains_last_good_frame','layout_burst_capture_budget','unchanged_pixels_skip_gpu_and_discovery','hidden_dock_skips_wallpaper_capture')
+DOCK = ('static_layers_only','host_geometry','no_touch_interception',
+        'dock_icon_hit_test_preserved','wallpaper_change_preserves_pixels','no_capture_or_polling',
+        'window_transition_retains_layers','works_without_wallpaper','disable_restores_background')
 
 def validate(path):
     path = Path(path); report = json.loads(path.read_text()); errors = []
@@ -36,11 +35,9 @@ def validate(path):
         required.update('screenshot.switch.'+style+'.render_'+v for v in ('on','off'))
     required.add('switch.theseus.uiview_bridge_contract')
     for cls in ('SBDockView','SBFloatingDockPlatterView'):
-        for style in ('theseusClear','glassifyProminentClear'):
-            suffixes = DOCK if style=='theseusClear' else tuple(v for v in DOCK if v not in ('clear_optics_with_neutral_side_band','container_geometry_only','side_band_darkening_removed','actual_metal_backend_no_fallback'))+('exact_prominent_clear_config',)
-            required.update('dock.'+cls+'.'+style+'.'+v for v in suffixes)
+        for style in ('staticClear','staticProminent'):
+            required.update('dock.'+cls+'.'+style+'.'+v for v in DOCK)
             required.add('screenshot.dock.'+cls+'.'+style+'.render')
-        required.add('dock.'+cls+'.disable_restores_background')
     for missing in sorted(required-present): errors.append('missing required assertion: '+missing)
     def png(filename):
         target = path.parent/filename

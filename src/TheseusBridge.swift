@@ -34,10 +34,9 @@ final class NGTheseusSwitch: UIView {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let scale = min(bounds.width / 63, bounds.height / 28)
         toggle.bounds = CGRect(x: 0, y: 0, width: 63, height: 28)
         toggle.center = CGPoint(x: bounds.midX, y: bounds.midY)
-        toggle.transform = CGAffineTransform(scaleX: scale, y: scale)
+        toggle.transform = .identity
         toggle.layoutIfNeeded()
     }
     @objc(setOn:animated:) func setOn(_ value: Bool, animated: Bool) {

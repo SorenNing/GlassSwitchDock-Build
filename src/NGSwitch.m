@@ -75,8 +75,8 @@ void NGRefreshSwitch(UISwitch *source) {
     @try {
     UIView *parent = source.superview;
     if (binding.overlay.superview != parent) { [binding.overlay removeFromSuperview]; [parent insertSubview:binding.overlay aboveSubview:source]; }
-    // Match the native host without applying its transform twice.
-    CGSize size = source.bounds.size;
+    // Preserve the original 63 x 28 track; UISwitch may report a 51pt host.
+    CGSize size = CGSizeMake(63,28);
     CGPoint center = source.center;
     if (!CGSizeEqualToSize(binding.overlay.bounds.size,size)) binding.overlay.bounds = (CGRect){CGPointZero,size};
     if (!CGPointEqualToPoint(binding.overlay.center,center)) binding.overlay.center = center;
