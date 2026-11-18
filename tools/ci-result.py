@@ -11,7 +11,7 @@ output = ROOT/'evidence/ci-result.json'
 if args.gate:
     result = json.loads(output.read_text())
 else:
-    keys = ['SETUP_RESULT', 'SOURCE_RESULT', 'INFRA_RESULT', 'ARM64E_RESULT', 'VERIFY_RESULT']
+    keys = ['SETUP_RESULT', 'SOURCE_RESULT', 'INFRA_RESULT', 'ARM64E_RESULT', 'VERIFY_RESULT', 'PORTABLE_RESULT']
     if os.environ.get('REQUIRE_SIMULATOR', '').lower() == 'true':
         keys += ['SMOKE_RESULT', 'SIMULATOR_RESULT']
     steps = {key: os.environ.get(key, 'missing') for key in keys}

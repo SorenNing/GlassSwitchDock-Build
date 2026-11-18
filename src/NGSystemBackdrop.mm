@@ -27,8 +27,12 @@ static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const vo
 @property(nonatomic) pid_t backendPID;
 @property(nonatomic) BOOL surfaceHidden;
 @property(nonatomic,copy) NSString *failedToken;
+@property(nonatomic) BOOL backendReadPending;
+@property(nonatomic) BOOL backendReadAgain;
 - (void)setSurfaceHidden:(BOOL)hidden;
-- (void)readBackend;
+- (void)scheduleBackendRead;
+- (void)applyBackend:(NSDictionary *)backend ack:(NSDictionary *)ack boot:(int64_t)boot alive:(BOOL)alive;
+- (void)scheduleHealthCheck;
 @end
 @implementation NGSystemBackdrop
 + (Class)layerClass {return NSClassFromString(@"CABackdropLayer")?:CALayer.class;}
@@ -62,16 +66,27 @@ static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const vo
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),NULL,NGBackendChanged,(__bridge CFStringRef)name,NULL,CFNotificationSuspensionBehaviorDeliverImmediately);
         }
     });
+    [self scheduleHealthCheck];
     return self;
+}
+- (void)scheduleHealthCheck {
+    __weak NGSystemBackdrop *weak=self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC),dispatch_get_main_queue(),^{
+        NGSystemBackdrop *s=weak;
+        if (!s || s.detached) return;
+        // Backend death does not necessarily send a Darwin notification.
+        if (s.window && !s.surfaceHidden) [s scheduleBackendRead];
+        [s scheduleHealthCheck];
+    });
 }
 - (void)dealloc {if (_reserved) [NGSlots() removeIndex:_slot];}
 - (BOOL)configureWithRadius:(CGFloat)radius style:(NSInteger)style {
     if (_detached || CGRectIsEmpty(self.bounds)) return NO;
     CGFloat scale=self.window.screen.scale?:UIScreen.mainScreen.scale;
-    self.layer.contentsScale=scale;
     BOOL dark=self.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
     NSDictionary *geometry=@{@"width":@(self.bounds.size.width),@"height":@(self.bounds.size.height),@"radius":@(radius),@"scale":@(scale),@"dark":@(dark),@"style":@(style)};
-    if ([_geometry isEqualToDictionary:geometry]) {[self readBackend];return _attached;}
+    if ([_geometry isEqualToDictionary:geometry]) return _attached;
+    if (self.layer.contentsScale!=scale) self.layer.contentsScale=scale;
     NSMutableDictionary *packet=nil;
     if (style==0) {
         Class c=NSClassFromString(@"NGDockMaterialParameters");id object=[c new];
@@ -99,14 +114,33 @@ static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const vo
         self.layer.filters=nil;self.layer.hidden=YES;_attached=NO;
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),CFSTR("com.ning.glassswitchdock/dock-parameters"),NULL,NULL,true);
     }
-    [self readBackend];return _attached;
+    [self scheduleBackendRead];return _attached;
 }
-- (void)readBackend {
+- (void)scheduleBackendRead {
     if (_detached) return;
-    NSString *statePath=NGStateDirectory();
-    NSDictionary *backend=statePath.length?[NSDictionary dictionaryWithContentsOfFile:[statePath stringByAppendingPathComponent:@"backend.plist"]]:nil;
+    if (_backendReadPending) {_backendReadAgain=YES;return;}
+    _backendReadPending=YES;
+    NSUInteger slot=_slot;
+    __weak NGSystemBackdrop *weak=self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+        NSString *statePath=NGStateDirectory();
+        NSDictionary *backend=statePath.length?[NSDictionary dictionaryWithContentsOfFile:[statePath stringByAppendingPathComponent:@"backend.plist"]]:nil;
+        NSDictionary *ack=statePath.length?[NSDictionary dictionaryWithContentsOfFile:[statePath stringByAppendingPathComponent:[NSString stringWithFormat:@"ack-%lu.plist",(unsigned long)slot]]]:nil;
+        pid_t pid=[backend[@"pid"] intValue];int64_t boot=NGBoot();
+        BOOL alive=pid>0 && (kill(pid,0)==0 || errno==EPERM);
+        dispatch_async(dispatch_get_main_queue(),^{
+            NGSystemBackdrop *s=weak;
+            if (!s) return;
+            s.backendReadPending=NO;
+            [s applyBackend:backend ack:ack boot:boot alive:alive];
+            if (s.backendReadAgain) {s.backendReadAgain=NO;[s scheduleBackendRead];}
+        });
+    });
+}
+- (void)applyBackend:(NSDictionary *)backend ack:(NSDictionary *)ack boot:(int64_t)boot alive:(BOOL)alive {
+    if (_detached) return;
     pid_t pid=[backend[@"pid"] intValue];
-    if ([backend[@"boot"] longLongValue]!=NGBoot() || ![backend[@"registered"] boolValue] || pid<=0 || (kill(pid,0)!=0 && errno!=EPERM)) {
+    if ([backend[@"boot"] longLongValue]!=boot || ![backend[@"registered"] boolValue] || !alive) {
         _attached=NO;_hasFrame=NO;self.layer.filters=nil;self.layer.hidden=YES;if (_onFrame) _onFrame(NO);return;
     }
     if (_backendPID!=pid) {_backendPID=pid;_attached=NO;_hasFrame=NO;_failedToken=nil;self.layer.filters=nil;self.layer.hidden=YES;if (_onFrame) _onFrame(NO);}
@@ -119,9 +153,7 @@ static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const vo
         id filter=[filterClass respondsToSelector:selector]?((id(*)(id,SEL,id))objc_msgSend)(filterClass,selector,name):nil;
         if (filter) {self.layer.filters=@[filter];_attached=YES;self.layer.hidden=_surfaceHidden;}
     }
-    NSString *file=[NGStateDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"ack-%lu.plist",(unsigned long)_slot]];
-    NSDictionary *ack=[NSDictionary dictionaryWithContentsOfFile:file];
-    if ([ack[@"token"] isEqualToString:_token] && [ack[@"boot"] longLongValue]==NGBoot() && [ack[@"pid"] intValue]==_backendPID) {
+    if ([ack[@"token"] isEqualToString:_token] && [ack[@"boot"] longLongValue]==boot && [ack[@"pid"] intValue]==_backendPID) {
         _hasFrame=[ack[@"success"] boolValue];
         if (!_hasFrame) {
             _failedToken=_token;_attached=NO;self.layer.filters=nil;self.layer.hidden=YES;
@@ -139,5 +171,5 @@ static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const vo
 - (NSDictionary *)diagnostics {return @{@"slot":@(_slot),@"ready":@(_hasFrame),@"filterAttached":@(_attached),@"token":_token?:@""};}
 @end
 static void NGBackendChanged(CFNotificationCenterRef,void *,CFStringRef,const void *,CFDictionaryRef) {
-    dispatch_async(dispatch_get_main_queue(),^{for (NGSystemBackdrop *s in NGSurfaces().allObjects) [s readBackend];});
+    dispatch_async(dispatch_get_main_queue(),^{for (NGSystemBackdrop *s in NGSurfaces().allObjects) [s scheduleBackendRead];});
 }

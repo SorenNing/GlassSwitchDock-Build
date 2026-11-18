@@ -42,7 +42,16 @@ class SystemBackdrop(unittest.TestCase):
         self.assertIn('frame<AcceptedFrame[slot]',back)
         self.assertIn('Packets[slot][@"token"]',back)
         self.assertIn('[ack[@"pid"] intValue]==_backendPID',front)
-        self.assertIn('[ack[@"boot"] longLongValue]==NGBoot()',front)
+        self.assertIn('int64_t boot=NGBoot()',front)
+        self.assertIn('[ack[@"boot"] longLongValue]==boot',front)
+        self.assertIn('[backend[@"boot"] longLongValue]!=boot',front)
+
+    def test_backend_notifications_use_coalesced_async_reads(self):
+        front=source('src/NGSystemBackdrop.mm')
+        self.assertNotIn('[s readBackend]',front)
+        self.assertIn('[s scheduleBackendRead]',front)
+        self.assertIn('if (_backendReadPending) {_backendReadAgain=YES;return;}',front)
+        self.assertIn('if (s.backendReadAgain)',front)
     def test_transport_has_no_optical_material(self):
         text=source('render/NGDockTransport.metal')
         self.assertIn('source.sample(s,v.uv)',text)

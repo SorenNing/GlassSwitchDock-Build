@@ -15,6 +15,8 @@
 #include <string>
 #include <limits.h>
 #include <stdlib.h>
+#include <atomic>
+#include <cstring>
 
 // Our namespace, routes, state and source implementation. No SystemBox dylib,
 // installation identity, preferences or shader is consulted at runtime.
@@ -28,7 +30,8 @@ IdentityFunction OriginalIdentity=nullptr;
 unsigned Major=0;
 bool Attempted=false,Registered=false;
 std::recursive_mutex &RouteLock(void) {static auto *lock=new std::recursive_mutex;return *lock;}
-std::unordered_map<uint32_t,unsigned> &Routes(void) {static auto *routes=new std::unordered_map<uint32_t,unsigned>;return *routes;}
+std::atomic<uint32_t> RouteAtoms[NG_DOCK_SLOTS]{};
+unsigned RouteCount=0; // registration queue only
 NSDictionary *Packets[NG_DOCK_SLOTS]={};
 uint64_t NextFrame[NG_DOCK_SLOTS]={},AcceptedFrame[NG_DOCK_SLOTS]={};
 std::unordered_map<unsigned,std::string> &LastAck(void) {static auto *acks=new std::unordered_map<unsigned,std::string>;return *acks;}
@@ -79,10 +82,14 @@ uintptr_t Pointer(void *object,ptrdiff_t offset) {
     return NGRenderStripData(p);
 }
 int Slot(void *filter) {
+    if (!filter) return -1;
+    // CA supplies a live filter to this ABI. Read the same validated atom field
+    // in-process; no Mach trap or global mutex for unrelated Gaussian filters.
     uint32_t atom=0;
-    if (!filter || !ReadWord((char *)filter+0x18,&atom,4)) return -1;
-    std::lock_guard<std::recursive_mutex> guard(RouteLock());
-    auto i=Routes().find(atom);return i==Routes().end()?-1:(int)i->second;
+    std::memcpy(&atom,(const char *)filter+0x18,sizeof(atom));
+    for (unsigned n=0;n<NG_DOCK_SLOTS;n++)
+        if (atom && RouteAtoms[n].load(std::memory_order_acquire)==atom) return (int)n;
+    return -1;
 }
 uintptr_t Identity(void *self,void *filter) {
     return Slot(filter)>=0?0:(OriginalIdentity?OriginalIdentity(self,filter):0);
@@ -162,10 +169,10 @@ void Register(void) {
     for (unsigned n=0;n<NG_DOCK_SLOTS;n++) {
         NSString *name=[NSString stringWithFormat:@"%s%u",NG_DOCK_FILTER_PREFIX,n];
         uint32_t atom=Symbols.internAtom(name.UTF8String);if (!atom) continue;
-        {std::lock_guard<std::recursive_mutex> guard(RouteLock());Routes()[atom]=n;}
+        RouteAtoms[n].store(atom,std::memory_order_release);++RouteCount;
         Symbols.addFilter(atom,Symbols.gaussianDescriptor);
     }
-    Registered=Routes().size()==NG_DOCK_SLOTS;
+    Registered=RouteCount==NG_DOCK_SLOTS;
     Reload();Report(Registered?@"registered":@"filter-registration-failed");
 }
 bool RapidStartGuard(void) {

@@ -1,6 +1,10 @@
 name: Native GlassSwitchDock
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       simulator:
@@ -35,17 +39,18 @@ jobs:
         id: source
         run: make check
       - name: Portable production regression contracts
+        id: portable
         if: ${{ success() && hashFiles('tools/test-local.py') != '' }}
         run: python3 tools/test-local.py
       - name: Compile actual-source hooks-free simulator app
         id: smoke
-        if: ${{ !cancelled() && inputs.simulator && steps.setup.outcome == 'success' && steps.source.outcome == 'success' }}
+        if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.simulator) && steps.setup.outcome == 'success' && steps.source.outcome == 'success' }}
         continue-on-error: true
         run: make smoke
       - name: Run simulator regression harness
         id: simulator
         timeout-minutes: 12
-        if: ${{ !cancelled() && inputs.simulator && steps.smoke.outcome == 'success' }}
+        if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.simulator) && steps.smoke.outcome == 'success' }}
         continue-on-error: true
         run: bash tools/run-ci-simulator.sh
       - name: Build real arm64e RootHide package
@@ -65,11 +70,12 @@ jobs:
           SETUP_RESULT: ${{ steps.setup.outcome }}
           SOURCE_RESULT: ${{ steps.source.outcome }}
           INFRA_RESULT: ${{ steps.infra.outcome }}
+          PORTABLE_RESULT: ${{ steps.portable.outcome }}
           ARM64E_RESULT: ${{ steps.arm64e.outcome }}
           VERIFY_RESULT: ${{ steps.verify.outcome }}
           SMOKE_RESULT: ${{ steps.smoke.outcome }}
           SIMULATOR_RESULT: ${{ steps.simulator.outcome }}
-          REQUIRE_SIMULATOR: ${{ inputs.simulator }}
+          REQUIRE_SIMULATOR: ${{ github.event_name != 'workflow_dispatch' || inputs.simulator }}
         run: python3 tools/ci-result.py
       - name: Upload packages, metadata and all available failure evidence
         if: ${{ always() }}

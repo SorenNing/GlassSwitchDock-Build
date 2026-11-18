@@ -43,6 +43,10 @@ int main(void) {
             source=Path(tmp)/'fixture.c'; binary=Path(tmp)/'fixture'
             source.write_text(fixture)
             subprocess.run([compiler,'-std=c99','-Wall','-Wextra','-Werror','-I',str(ROOT/'src'),str(source),'-o',str(binary)],check=True,capture_output=True,text=True,timeout=45)
+            # Device-built executables must be signed before their first run.
+            # macOS CI uses its normal linker signature and needs no ldid.
+            if os.uname().sysname == 'Darwin' and shutil.which('ldid'):
+                subprocess.run(['ldid','-S'+str(ROOT/'tests/Tool.entitlements'),str(binary)],check=True,capture_output=True,text=True,timeout=10)
             subprocess.run([str(binary)],check=True,capture_output=True,text=True,timeout=10)
 
     def test_front_and_back_use_the_same_production_helper(self):

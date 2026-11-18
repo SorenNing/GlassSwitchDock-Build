@@ -1,6 +1,7 @@
 #import "Bridge.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <os/log.h>
 
 static char kNGBindingKey;
 static NSHashTable<UISwitch *> *NGSeenSwitches(void) {
@@ -15,6 +16,8 @@ static NSHashTable<UISwitch *> *NGSeenSwitches(void) {
 @property(nonatomic) BOOL originalAccessibility;
 @property(nonatomic) BOOL forwarding;
 @property(nonatomic) BOOL modifyingNative;
+@property(nonatomic) BOOL refreshing;
+@property(nonatomic) BOOL replacing;
 - (void)commit:(BOOL)value;
 @end
 
@@ -59,6 +62,8 @@ void NGRefreshSwitch(UISwitch *source) {
     NGSwitchBinding *binding = objc_getAssociatedObject(source,&kNGBindingKey);
     if (!binding) {
         if (!NGBundleResources()) return; // Do not hide a working native control if resources are missing.
+        static unsigned diagnosed = 0;
+        if (diagnosed++ < 8) os_log(OS_LOG_DEFAULT,"[GlassSwitchDock] UISwitch observed class=%{public}s replacement-created",object_getClassName(source));
         binding = [NGSwitchBinding new]; binding.source = source;
         binding.originalAlpha = source.alpha; binding.originalAccessibility = source.isAccessibilityElement;
         Class component = NSClassFromString(@"NGTheseusSwitch"); if (!component) return;
@@ -69,20 +74,36 @@ void NGRefreshSwitch(UISwitch *source) {
         binding.overlay.clipsToBounds = NO;
         objc_setAssociatedObject(source,&kNGBindingKey,binding,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+    if (binding.refreshing) return;
+    binding.refreshing = YES;
+    @try {
     UIView *parent = source.superview;
     if (binding.overlay.superview != parent) { [binding.overlay removeFromSuperview]; [parent insertSubview:binding.overlay aboveSubview:source]; }
-    // Preserve the original Theseus 63 x 28 track and Layout defaults.
-    CGSize size = CGSizeMake(63,28);
-    CGPoint center = [source convertPoint:CGPointMake(CGRectGetMidX(source.bounds),CGRectGetMidY(source.bounds)) toView:parent];
-    binding.overlay.bounds = (CGRect){CGPointZero,size}; binding.overlay.center = center;
-    binding.overlay.transform = source.transform;
+    // Mirror bounds/center rather than transformed frame (which double-applies
+    // transforms). The bridge keeps the original Theseus layout internally.
+    CGSize size = source.bounds.size;
+    CGPoint center = source.center;
+    if (!CGSizeEqualToSize(binding.overlay.bounds.size,size)) binding.overlay.bounds = (CGRect){CGPointZero,size};
+    if (!CGPointEqualToPoint(binding.overlay.center,center)) binding.overlay.center = center;
+    if (!CGAffineTransformEqualToTransform(binding.overlay.transform,source.transform)) binding.overlay.transform = source.transform;
+    NSUInteger index = [parent.subviews indexOfObjectIdenticalTo:source];
+    NSUInteger overlayIndex = [parent.subviews indexOfObjectIdenticalTo:binding.overlay];
+    if (index != NSNotFound && overlayIndex != index+1) [parent insertSubview:binding.overlay aboveSubview:source];
     binding.overlay.hidden = source.hidden;
     binding.overlay.userInteractionEnabled = source.userInteractionEnabled;
     binding.overlay.alpha = binding.originalAlpha;
-    binding.modifyingNative = YES;
-    source.alpha = 0; source.isAccessibilityElement = NO;
-    binding.modifyingNative = NO;
     NGSyncSwitch(source, NO);
+    [binding.overlay layoutIfNeeded];
+    SEL ready = NSSelectorFromString(@"replacementReady");
+    BOOL visible = !source.hidden && binding.overlay.window == source.window &&
+        [binding.overlay respondsToSelector:ready] && ((BOOL(*)(id,SEL))objc_msgSend)(binding.overlay,ready);
+    binding.overlay.hidden = !visible;
+    binding.replacing = visible;
+    binding.modifyingNative = YES;
+    source.alpha = visible ? 0 : binding.originalAlpha;
+    source.isAccessibilityElement = visible ? NO : binding.originalAccessibility;
+    binding.modifyingNative = NO;
+    } @finally { binding.refreshing = NO; }
 }
 
 void NGRefreshAllSwitches(void) {
@@ -94,5 +115,5 @@ BOOL NGHandleSwitchAlpha(UISwitch *source, CGFloat alpha) {
     if (!binding || binding.modifyingNative) return NO;
     binding.originalAlpha = alpha;
     binding.overlay.alpha = alpha;
-    return YES;
+    return binding.replacing;
 }
