@@ -15,7 +15,7 @@ def switch_source(text):
     end = text.index('    private func convertToTheseusContainer(', start)
     text = replace_once(text, text[start:end], '''    // Keep capture and glass in the control's actual window and local hierarchy.
     private var theseusSourceView: UIView? { self }
-    private var theseusContainer: UIView? { superview?.superview }
+    private var theseusContainer: UIView? { superview }
 
 ''')
     text = replace_once(text, '            glassRevealed = prefersReducedMotion', '''            glassRevealed = false
@@ -36,6 +36,58 @@ def switch_source(text):
         }
         let lens''')
     text = replace_once(text, 'thumbLayer.opacity = Float(max(fill, Self.unrevealedKnobOpacity))', 'thumbLayer.opacity = 1 // Retain thumb until a successful first frame.')
+    text = replace_once(text, '''    private func landGlass() {
+        isLensVisible = false''', '''    private func landGlass() {
+        presentationGeneration += 1
+        isLensVisible = false''')
+    text = replace_once(text, '''        isLensVisible = false
+        glass.continuousUpdate = false''', '''        presentationGeneration += 1
+        let generation = presentationGeneration
+        glass.onPresent = nil
+        isLensVisible = false
+        glass.continuousUpdate = false''')
+    text = replace_once(text, '''            guard let self = self else { return }
+            guard !self.isLensVisible else {''', '''            guard let self = self, self.presentationGeneration == generation,
+                  self.theseusView === glass else { return }
+            guard !self.isLensVisible else {''')
+    text = replace_once(text, '''    private func teardownGlass() {''', '''    #if NG_TESTING
+    func ngLifecycleRegression() -> [String: Any] {
+        setupGlassIfNeeded()
+        let sharesContainer = theseusView?.superview === superview
+        let local = glassFrame(forThumbX: thumbOffX)
+        let converted = convertToTheseusContainerExact(local)
+        let expected = convert(local, to: superview)
+        let localCenter = CGPoint(x: local.midX, y: local.midY)
+        let convertedCenter = CGPoint(x: converted.midX, y: converted.midY)
+        let a = convert(localCenter, to: window)
+        let b = superview?.convert(convertedCenter, to: window) ?? .zero
+        let screenAligned = abs(a.x - b.x) < 0.01 && abs(a.y - b.y) < 0.01
+        pressBegan(at: CGPoint(x: 20, y: 14))
+        showGlass()
+        let stalePresent = theseusView?.onPresent
+        let hadPresentation = stalePresent != nil
+        landGlass()
+        stalePresent?()
+        let landedSafe = thumbLayer.opacity == 1 && !isLensVisible
+        teardownGlass()
+        setupGlassIfNeeded()
+        pressBegan(at: CGPoint(x: 20, y: 14))
+        showGlass()
+        stalePresent?()
+        let reusedSafe = thumbLayer.opacity == 1 && !glassRevealed && isLensVisible
+        let wasVisible = isLensVisible
+        let generationBeforeHide = presentationGeneration
+        hideGlass(toThumbFrame: thumbFrame(x: thumbOffX), animated: true)
+        let hideInvalidates = presentationGeneration > generationBeforeHide && theseusView?.onPresent == nil
+        teardownGlass()
+        return ["sharesContainer": sharesContainer && theseusView == nil,
+                "hideInvalidatesPresentation": wasVisible && hideInvalidates,
+                "coordinatesMatch": converted == expected && screenAligned,
+                "landedThumbVisible": hadPresentation && landedSafe, "reusedThumbVisible": hadPresentation && reusedSafe]
+    }
+    #endif
+
+    private func teardownGlass() {''')
     text = replace_once(text, '''    private func teardownGlass() {
         stopGlassLink()''', '''    private func teardownGlass() {
         presentationGeneration += 1

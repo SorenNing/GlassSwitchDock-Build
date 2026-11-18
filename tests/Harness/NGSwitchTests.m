@@ -72,6 +72,22 @@ void NGRunSwitchTests(NGRecorder *r, UIView *root) {
         [r check:fabs(windowSize.size.width-63)<0.01 && fabs(windowSize.size.height-28)<0.01
                name:NGID(style, @"scaled_parent_preserves_window_size")
            evidence:@{@"windowBounds":NSStringFromCGRect(windowSize)}];
+        CGPoint savedCenter = a.center;
+        CGRect savedBounds = a.bounds;
+        a.center = CGPointMake(savedCenter.x + 38, savedCenter.y + 9);
+        a.bounds = CGRectOffset(savedBounds, 7, 3);
+        NGRefreshSwitch(a);
+        CGPoint nativeCenter = [a convertPoint:CGPointMake(CGRectGetMidX(a.bounds), CGRectGetMidY(a.bounds)) toView:root.window];
+        CGPoint overlayCenter = [component convertPoint:CGPointMake(CGRectGetMidX(component.bounds), CGRectGetMidY(component.bounds)) toView:root.window];
+        [r check:hypot(nativeCenter.x-overlayCenter.x,nativeCenter.y-overlayCenter.y)<0.01
+               name:NGID(style, @"moved_host_center_alignment")
+               evidence:@{@"native":NSStringFromCGPoint(nativeCenter), @"overlay":NSStringFromCGPoint(overlayCenter)}];
+        a.bounds = savedBounds; a.center = savedCenter; NGRefreshSwitch(a);
+        NSDictionary *lifecycle = [NGTheseusProbe lifecycle:component];
+        [r check:[lifecycle[@"sharesContainer"] boolValue] && [lifecycle[@"coordinatesMatch"] boolValue] &&
+                 [lifecycle[@"hideInvalidatesPresentation"] boolValue] &&
+                 [lifecycle[@"landedThumbVisible"] boolValue] && [lifecycle[@"reusedThumbVisible"] boolValue]
+               name:NGID(style, @"glass_lifecycle_scaled_parent") evidence:lifecycle];
         fixture.transform=CGAffineTransformIdentity;
         a.transform=CGAffineTransformIdentity; NGRefreshSwitch(a);
         [r check:!NGComponentOn(component, style) && NGComponentOn(second, style) && spyA.count == 0

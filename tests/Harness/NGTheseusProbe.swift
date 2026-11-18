@@ -106,6 +106,11 @@ final class NGTheseusProbe: NSObject {
         return true
     }
 
+    @objc static func lifecycle(_ view: UIView) -> NSDictionary {
+        guard let control = view as? TheseusSwitch else { return ["error": "not original TheseusSwitch"] }
+        return control.ngLifecycleRegression() as NSDictionary
+    }
+
     @objc static func settings() -> NSDictionary {
         let settings = TheseusSettings.shared
         return ["glassStyle": String(describing: settings.glassStyle),

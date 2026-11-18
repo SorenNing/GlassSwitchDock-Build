@@ -25,7 +25,7 @@ class Compatibility(unittest.TestCase):
             self.assertIn('private var theseusSourceView: UIView? { self }', switch)
             self.assertIn('self?.contentView.backgroundColor = .secondarySystemGroupedBackground', switch)
             self.assertIn('self?.thumbLayer.isHidden = true', switch)
-            self.assertIn('private var theseusContainer: UIView? { superview?.superview }', switch)
+            self.assertIn('private var theseusContainer: UIView? { superview }', switch)
             self.assertIn('guard completed.status == .completed', outputs[1].read_text())
         self.assertEqual(before, [p.read_bytes() for p in paths])
 

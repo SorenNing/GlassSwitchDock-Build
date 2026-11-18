@@ -9,9 +9,16 @@ static void (*gSWLayout)(id,SEL), (*gSWWindow)(id,SEL), (*gSWParent)(id,SEL);
 static void (*gSWOn)(id,SEL,BOOL), (*gSWEnabled)(id,SEL,BOOL), (*gSWHidden)(id,SEL,BOOL);
 static void (*gSWAlpha)(id,SEL,CGFloat), (*gSWInteraction)(id,SEL,BOOL);
 static void (*gSWOnAnimated)(id,SEL,BOOL,BOOL);
+static void (*gSWFrame)(id,SEL,CGRect), (*gSWBounds)(id,SEL,CGRect);
+static void (*gSWCenter)(id,SEL,CGPoint);
+static void (*gSWTransform)(id,SEL,CGAffineTransform);
 static void (*gDockLayout)(id,SEL), (*gDockWindow)(id,SEL);
 static void (*gFloatingLayout)(id,SEL), (*gFloatingWindow)(id,SEL);
 
+static void NGSwitchFrame(UISwitch *s,SEL c,CGRect v) { if (gSWFrame) gSWFrame(s,c,v); NGRefreshSwitch(s); }
+static void NGSwitchBounds(UISwitch *s,SEL c,CGRect v) { if (gSWBounds) gSWBounds(s,c,v); NGRefreshSwitch(s); }
+static void NGSwitchCenter(UISwitch *s,SEL c,CGPoint v) { if (gSWCenter) gSWCenter(s,c,v); NGRefreshSwitch(s); }
+static void NGSwitchTransform(UISwitch *s,SEL c,CGAffineTransform v) { if (gSWTransform) gSWTransform(s,c,v); NGRefreshSwitch(s); }
 static void NGSwitchLayout(UISwitch *s,SEL c) { if (gSWLayout) gSWLayout(s,c); NGRefreshSwitch(s); }
 static void NGSwitchWindow(UISwitch *s,SEL c) { if (gSWWindow) gSWWindow(s,c); NGRefreshSwitch(s); }
 static void NGSwitchParent(UISwitch *s,SEL c) { if (gSWParent) gSWParent(s,c); NGRefreshSwitch(s); }
@@ -54,6 +61,10 @@ __attribute__((constructor)) static void NGInitialize(void) {
             }
         }
         Class sw = UISwitch.class;
+        NGInstallMethod(sw,@selector(setFrame:),(IMP)NGSwitchFrame,(IMP *)&gSWFrame);
+        NGInstallMethod(sw,@selector(setBounds:),(IMP)NGSwitchBounds,(IMP *)&gSWBounds);
+        NGInstallMethod(sw,@selector(setCenter:),(IMP)NGSwitchCenter,(IMP *)&gSWCenter);
+        NGInstallMethod(sw,@selector(setTransform:),(IMP)NGSwitchTransform,(IMP *)&gSWTransform);
         NGInstallMethod(sw,@selector(layoutSubviews),(IMP)NGSwitchLayout,(IMP *)&gSWLayout);
         NGInstallMethod(sw,@selector(didMoveToWindow),(IMP)NGSwitchWindow,(IMP *)&gSWWindow);
         NGInstallMethod(sw,@selector(didMoveToSuperview),(IMP)NGSwitchParent,(IMP *)&gSWParent);

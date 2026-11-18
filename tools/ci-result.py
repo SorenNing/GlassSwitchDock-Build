@@ -9,7 +9,11 @@ from project import ROOT
 p = argparse.ArgumentParser(); p.add_argument('--gate', action='store_true'); args = p.parse_args()
 output = ROOT/'evidence/ci-result.json'
 if args.gate:
-    result = json.loads(output.read_text())
+    try:
+        result = json.loads(output.read_text())
+    except (OSError, ValueError) as error:
+        result = {'status': 'failed', 'error': str(error), 'report': str(output.relative_to(ROOT))}
+    print('Persisted CI report:', str(output.relative_to(ROOT)), flush=True)
 else:
     keys = ['SETUP_RESULT', 'SOURCE_RESULT', 'INFRA_RESULT', 'ARM64E_RESULT', 'VERIFY_RESULT']
     if os.environ.get('REQUIRE_SIMULATOR', '').lower() == 'true':
