@@ -41,9 +41,7 @@ def discover():
             core.append(p)
     return {
         'vendor_swift': swift,
-        'swift': swift + [ROOT / 'src/TheseusBridge.swift', ROOT / 'src/TheseusBundle.swift', ROOT / 'src/NGDockMaterialParameters.swift'],
-        'render': sorted((ROOT / 'render').glob('*.mm')),
-        'transport_metal': sorted((ROOT / 'render').glob('*.metal')),
+        'swift': swift + [ROOT / 'src/TheseusBridge.swift', ROOT / 'src/TheseusBundle.swift'],
         'core': core,
         'cpp': sorted((gsrc / 'Core').rglob('*.cpp')),
         'platform': sorted(p for p in (gsrc / 'Platform').rglob('*.mm') if p.name != 'GLSSwitch.mm'),
@@ -114,15 +112,13 @@ def specifiers(path):
 def check():
     sources = discover()
     counts = {k: len(v) for k, v in sources.items() if isinstance(v, list)}
-    if counts['vendor_swift'] != 33 or counts['swift'] != 36:
-        raise ValueError('Expected 33 original + 3 bridge/parameter Swift sources: ' + str(counts))
+    if counts['vendor_swift'] != 33 or counts['swift'] != 35:
+        raise ValueError('Expected 33 original + 2 bridge Swift sources: ' + str(counts))
     if counts['cpp'] != 4 or counts['platform'] == 0 or counts['core'] == 0 or counts['prefs'] == 0:
         raise ValueError('Missing actual Glassify/runtime/preferences sources: ' + str(counts))
-    if counts['render'] != 4 or counts['transport_metal'] != 1:
-        raise ValueError('Missing own render backend / transport source: ' + str(counts))
     if counts['theseus_metal'] != 1 or counts['glassify_metal'] == 0:
         raise ValueError('Missing original Metal sources: ' + str(counts))
-    for p in sources['swift'] + sources['core'] + sources['cpp'] + sources['platform'] + sources['prefs'] + sources['render']:
+    for p in sources['swift'] + sources['core'] + sources['cpp'] + sources['platform'] + sources['prefs']:
         if not p.is_file():
             raise ValueError('Missing source: ' + rel(p))
     for p in list(ROOT.glob('src/*')) + list(ROOT.glob('prefs/*')):
@@ -148,7 +144,7 @@ def check():
     hooksrc = '\n'.join(p.read_text() for p in sources['core'])
     if 'MSHookMessageEx' in hooksrc and 'dlsym' not in hooksrc:
         raise ValueError('MSHookMessageEx must resolve at runtime via dlsym')
-    for p in sources['core'] + sources['render']:
+    for p in sources['core']:
         text = p.read_text()
         if '__attribute__((constructor))' in text and 'NG_TESTING' not in text:
             raise ValueError('Constructor needs NG_TESTING guard for smoke: ' + rel(p))

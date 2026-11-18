@@ -1,13 +1,12 @@
 {
   "name": "GlassSwitchDock",
   "package": "com.ning.glassswitchdock",
-  "version": "0.1.7",
+  "version": "0.1.3",
   "author": "Ning&Vadim Drobinin&Hung Phan",
   "repository": "https://github.com/Ningios/GlassSwitchDock",
   "deployment": "15.0",
   "frameworks": [
     "Foundation",
-    "CoreFoundation",
     "UIKit",
     "Metal",
     "MetalKit",

@@ -17,7 +17,3 @@ Build owner writes only tools/, packaging/, .github/workflows/, Makefile, .gitig
 - CI is `.github/workflows/build.yml`, macos-26-intel, workflow_dispatch only. Input `simulator` defaults true. `tools/setup-macos.sh` selects installed Metal or downloads MetalToolchain and fetches a SHA256-pinned unmodified SDK16.5 Preferences link interface; it honors preexisting THEOS. Xcode SDK remains compile SDK. No repository creation, push, dispatch, signing identities or secrets are used by these scripts.
 
 Build infrastructure status and exact source discovery will be recorded in tools output and ../evidence/build-infrastructure.json. Xcode builds and remote dispatch are left to parent.
-
-## 0.1.4 system backdrop amendment
-
-The main Swift set is now 33 originals + 3 bridges/parameter sources. The obsolete NGClearDockView and NGWallpaperBackdrop are removed. The independently built render target compiles `render/*.mm` and the four existing Glassify Core C++ files, without linking the frontend or importing UIKit into backboardd. The backend links only Foundation, CoreFoundation, Metal and QuartzCore. The harness includes the same encoder source with constructor disabled and synthetic input textures. A third Metal library, DockTransport.bundle, performs format transport without defining a material. The final package contains two self-built dylibs plus the preference executable, one settings entry and three metallibs. postinst provisions only the mobile-owned parameter directory and never signals a process.

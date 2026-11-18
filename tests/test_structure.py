@@ -55,7 +55,7 @@ class Structure(unittest.TestCase):
         switch=bridge.split('@objc(NGClearDockView)')[0]
         self.assertNotRegex(switch,r'\.(?:layout|glassMaterial|onTintColor|offTintColor|thumbTintColor)\s*(?:\.[A-Za-z]+\s*)?=')
         self.assertIn('toggle.onValueChanged',switch); self.assertIn('setOn:animated:',switch)
-        self.assertIn('TheseusConfiguration.clear',text('src/NGDockMaterialParameters.swift'))
+        self.assertIn('TheseusConfiguration.clear',bridge)
         core='\n'.join(p.read_text() for p in (ROOT/'src').glob('*') if p.suffix in {'.m','.mm','.swift','.h'})
         self.assertNotRegex(core,r'glassStyle\s*=\s*\.iOS26|iosVersionOverride\s*=|tierOverride\s*=|refractionQualityOverride\s*=')
         self.assertNotRegex(core,r'UIFont|setFont:|\.font\s*=|\bappearance\s*\]|UIAppearance|DNToggleView|daynight')
@@ -63,11 +63,7 @@ class Structure(unittest.TestCase):
         self.assertNotIn('NGSwitchStyle',text('src/Bridge.h'))
     def test_material_defaults_and_no_demo_controls(self):
         dock=text('src/NGDock.mm')
-        self.assertIn('NGSystemBackdrop',dock)
-        self.assertIn('UIColor.secondarySystemFillColor',text('src/NGSystemBackdrop.mm'))
-        self.assertIn('GlassStyle::Clear',text('render/NGDockGPU.mm'))
-        self.assertNotIn('NGWallpaperBackdrop',dock)
-        self.assertNotRegex(dock,r'NSTimer|CADisplayLink|UIGraphics|renderInContext|captureInterval')
+        self.assertIn('GLSGlassStyleClear',dock); self.assertIn('UIColor.secondarySystemFillColor',dock)
         self.assertNotRegex(dock,r'GLSGlassButton\s*\*|UILabel|UISlider|GLSSlider|TheseusSlider|setTitle:|\.font\s*=')
         self.assertRegex(dock,r'userInteractionEnabled\s*=\s*NO')
         self.assertRegex(dock,r'isAccessibilityElement\s*=\s*NO')

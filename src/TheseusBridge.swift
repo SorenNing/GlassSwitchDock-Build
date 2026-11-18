@@ -23,28 +23,7 @@ final class NGTheseusSwitch: UIView {
     }
     required init?(coder: NSCoder) { return nil }
     override var intrinsicContentSize: CGSize { toggle.intrinsicContentSize }
-    @objc var replacementReady: Bool { window != nil && !toggle.bounds.isEmpty && toggle.superview === self }
-    override var isHidden: Bool { didSet { toggle.isHidden = isHidden } }
-    override func willMove(toSuperview newSuperview: UIView?) {
-        if newSuperview !== superview {
-            // The lens is a sibling of this wrapper; hide it before detaching
-            // so cell reuse cannot leave a lens or an active gesture behind.
-            toggle.isHidden = true
-        }
-        super.willMove(toSuperview: newSuperview)
-    }
-    override func didMoveToSuperview() {
-        super.didMoveToSuperview()
-        toggle.isHidden = isHidden || superview == nil
-    }
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let scale = min(bounds.width / 63, bounds.height / 28)
-        toggle.bounds = CGRect(x: 0, y: 0, width: 63, height: 28)
-        toggle.center = CGPoint(x: bounds.midX, y: bounds.midY)
-        toggle.transform = CGAffineTransform(scaleX: scale, y: scale)
-        toggle.layoutIfNeeded()
-    }
+    override func layoutSubviews() { super.layoutSubviews(); toggle.frame = bounds }
     @objc(setOn:animated:) func setOn(_ value: Bool, animated: Bool) {
         toggle.setOn(value, animated: animated)
     }
@@ -56,3 +35,67 @@ final class NGTheseusSwitch: UIView {
     override func accessibilityActivate() -> Bool { toggle.accessibilityActivate() }
 }
 
+@objc(NGClearDockView)
+final class NGClearDockView: TheseusView {
+    @objc var onReady: (() -> Void)?
+    private var lastRadius: CGFloat = -1
+    private var lastSize: CGSize = .zero
+    private var active = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        pauseRendering()
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        // Readback is only for the simulator assertions. Production uses the
+        // GPU-present callback, avoiding a full texture copy for every frame.
+        #if NG_TESTING
+        providesCaptureSnapshot = true
+        #else
+        providesCaptureSnapshot = false
+        #endif
+        continuousUpdate = false
+        isOpaque = false
+        onPresent = { [weak self] in self?.onReady?() }
+    }
+    required init?(coder: NSCoder) { return nil }
+
+    @objc(configureWithRadius:source:excluded:)
+    func configure(radius: CGFloat, source: UIView, excluded: [UIView]) {
+        if sourceView !== source { sourceView = source }
+        setCaptureExcludedViews(excluded)
+        if radius != lastRadius || lastSize != bounds.size {
+            lastRadius = radius
+            lastSize = bounds.size
+            var config = TheseusConfiguration.clear
+            // Only the desktop Clear surface: remove the negative lateral-band
+            // bias, which otherwise draws a fine dark contour at the side tips.
+            // All vendor presets, switches, refraction and face colours stay intact.
+            config.glassRim?.bandBias = 0
+            config.captureMethod = TheseusCapability.isDeviceSupported ? .layerRendering : .surfaceBased
+            config.shape.cornerRadius = min(max(radius, 0.01), min(bounds.width, bounds.height) / 2)
+            // Clear has no external drop shadow. The Dock uses the system's
+            // exact bounds; no padded drawable is compressed into those bounds.
+            config.shape.padding = .zero
+            config.shape.widthInset = 0
+            config.shape.heightInset = 0
+            // Only capsule-shaped hosts take the original continuous capsule ends.
+            config.shape.continuousCapsule = config.shape.cornerRadius >= min(bounds.width, bounds.height) / 2 - 0.5
+            configuration = config
+            setNeedsLayout()
+        }
+    }
+    @objc(invalidateBackdrop) func invalidateBackdrop() { invalidateBackground() }
+    @objc(setRenderingActive:) func setRenderingActive(_ value: Bool) {
+        if active == value && (value ? isRendering : !isRendering) { return }
+        active = value
+        if value && window != nil {
+            if !isRendering { resumeRendering() }
+        } else if isRendering { pauseRendering() }
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        setRenderingActive(active)
+        if window != nil, metalLayer == nil { onReady?() }
+    }
+}

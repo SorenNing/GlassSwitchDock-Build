@@ -7,7 +7,6 @@ from pathlib import Path
 import platform
 import plistlib
 import shutil
-import signal
 import subprocess
 import sys
 import time
@@ -15,87 +14,20 @@ import time
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 
-COMMAND_OUTPUT = None
-COMMAND_INDEX = 0
-
-def command(args, *, env=None, check=True, timeout=60):
-    global COMMAND_INDEX
-    COMMAND_INDEX += 1
-    args = [str(v) for v in args]
-    print('SIMULATOR COMMAND:', args, 'timeout:', timeout, flush=True)
-    log_path = COMMAND_OUTPUT/f'command-{COMMAND_INDEX:02d}.log' if COMMAND_OUTPUT else None
-    if log_path:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-    import tempfile
-    error_path = log_path.with_suffix('.stderr.log') if log_path else None
-    with (log_path.open('w+b') if log_path else tempfile.TemporaryFile()) as log, \
-         (error_path.open('w+b') if error_path else tempfile.TemporaryFile()) as errors:
-        proc = subprocess.Popen(args, stdout=log, stderr=errors, env=env, start_new_session=True)
-        try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            # Terminate the whole command group, including any stuck simctl child.
-            try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                proc.wait(timeout=5)
-            log.flush(); log.seek(0); errors.flush(); errors.seek(0)
-            print(log.read().decode('utf-8', 'replace')[-6000:], flush=True)
-            print(errors.read().decode('utf-8', 'replace')[-6000:], file=sys.stderr, flush=True)
-            if COMMAND_OUTPUT:
-                (COMMAND_OUTPUT/'command-timeout.json').write_text(json.dumps({'command':args,'timeout':timeout,'exit':proc.returncode},indent=2)+'\n')
-            raise RuntimeError(f'Simulator command exceeded {timeout}s: {args[:4]}')
-        log.flush(); log.seek(0); errors.flush(); errors.seek(0)
-        output = log.read().decode('utf-8', 'replace')
-        error = errors.read().decode('utf-8', 'replace')
-    print(output[-6000:], end='', flush=True)
-    print(error[-6000:], end='', file=sys.stderr, flush=True)
-    result = subprocess.CompletedProcess(args, proc.returncode, output, error)
+def command(args, *, env=None, check=True):
+    result = subprocess.run([str(v) for v in args], text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=env)
     if check and result.returncode:
-        raise RuntimeError(f'{args[0:4]} failed ({result.returncode}): {error[-6000:]}')
+        raise RuntimeError(f'{args[0:4]} failed ({result.returncode}): {result.stderr[-6000:]}')
     return result
 
-def select_auto_device(devices, sdk_version):
-    """Prefer a running phone, then the selected Xcode's runtime, then newest."""
-    def version(runtime):
-        suffix = runtime.rsplit('.iOS-', 1)[-1]
-        return tuple(int(part) for part in suffix.split('-') if part.isdigit())
-    sdk = tuple(int(part) for part in sdk_version.strip().split('.') if part.isdigit())
-    phones = [d for d in devices if 'iPhone' in d['name']]
-    if not phones:
-        raise RuntimeError('No available iPhone simulator')
-    return min(phones, key=lambda d: (
-        d['state'] != 'Booted', version(d['runtime']) != sdk,
-        tuple(-part for part in version(d['runtime'])), d['name']))
-
-
-def wait_for_boot(device, timeout):
-    # Cold CI runtimes spend several minutes migrating system apps. Keep that
-    # budget separate from the app's regression deadline and never erase/reboot
-    # the device while migration is making progress.
-    command(['xcrun','simctl','bootstatus',device,'-b'], timeout=timeout)
-
-
 def main():
-    global COMMAND_OUTPUT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app', type=Path, default=ROOT/'build/simulator/GlassSwitchDockHarness.app')
-    parser.add_argument('--device', default='booted', help='auto, booted, or explicit simulator UDID (no physical devices)')
+    parser.add_argument('--device', default='booted', help='Booted simulator or explicit UDID (no physical devices)')
     parser.add_argument('--output', type=Path, default=ROOT/'evidence/native-regression')
     parser.add_argument('--timeout', type=float, default=120)
-    parser.add_argument('--boot-timeout', type=float, default=600,
-                        help='Separate cold-start/migration budget in seconds (default: 600)')
     args = parser.parse_args()
-    output = args.output.resolve(); output.mkdir(parents=True, exist_ok=True)
-    COMMAND_OUTPUT = output
     if platform.system() != 'Darwin' or not shutil.which('xcrun'):
         parser.error('Native execution requires local macOS + full Xcode + iOS Simulator. No native tests executed.')
     app = args.app.resolve()
@@ -105,17 +37,10 @@ def main():
     bundle_id = info['CFBundleIdentifier']
     if bundle_id != 'com.minis.GlassSwitchDockHarness': parser.error('Refusing to replace a non-harness app')
     if args.timeout <= 0 or args.timeout > 600: parser.error('--timeout must be in (0, 600]')
-    if args.boot_timeout <= 0 or args.boot_timeout > 900: parser.error('--boot-timeout must be in (0, 900]')
     for bundle in (app/'GlassSwitchDockResources.bundle', app/'GlassSwitchDockResources.bundle/GlassifyShaders.bundle'):
         if not (bundle/'default.metallib').is_file(): parser.error(f'Missing original compiled shader resource: {bundle}')
     available = json.loads(command(['xcrun','simctl','list','devices','available','--json']).stdout)
-    (output/'devices.json').write_text(json.dumps(available,indent=2)+'\n')
-    devices = [dict(d, runtime=runtime) for runtime,group in available['devices'].items() if '.iOS-' in runtime for d in group if d.get('isAvailable', True)]
-    if args.device == 'auto':
-        sdk_version = command(['xcrun','--sdk','iphonesimulator','--show-sdk-version']).stdout.strip()
-        selected = select_auto_device(devices, sdk_version)
-        (output/'selected-device.json').write_text(json.dumps(selected, indent=2)+'\n')
-        args.device = selected['udid']
+    devices = [d for group in available['devices'].values() for d in group if d.get('isAvailable', True)]
     if args.device == 'booted':
         booted = [d for d in devices if d['state']=='Booted']
         if len(booted) != 1: parser.error('Use --device UDID when zero or multiple simulators are booted')
@@ -125,8 +50,8 @@ def main():
         if match is None: parser.error('--device must be an available iOS Simulator UDID')
         device = match['udid']
         if match['state'] != 'Booted': command(['xcrun','simctl','boot',device])
-    wait_for_boot(device, args.boot_timeout)
-    command(['xcrun','simctl','install',device,app], timeout=120)
+    command(['xcrun','simctl','bootstatus',device,'-b'])
+    command(['xcrun','simctl','install',device,app])
     container = Path(command(['xcrun','simctl','get_app_container',device,bundle_id,'data']).stdout.strip())
     sandbox_output = container/'Documents/NGRegression'
     sandbox_output.mkdir(parents=True, exist_ok=True)

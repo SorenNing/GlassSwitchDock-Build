@@ -1,7 +1,5 @@
 #!/bin/sh
+# dpkg creates every owned directory from data.tar.gz.
+# Deliberately no process signalling or SpringBoard/Preferences restart.
 set -e
-state="/var/mobile/Library/Preferences/com.ning.glassswitchdock.render"
-mkdir -p "$state"
-chown mobile:mobile "$state"
-chmod 0755 "$state"
 exit 0

@@ -131,37 +131,9 @@ def macho(data, expected_arch):
             'deployment': '15.0', 'platform': 'iOS'}
 
 
-
-def backend_macho(data, package_arch):
-    if package_arch != 'arm64e':
-        return macho(data, package_arch)
-    require(data[:4] == b'\xca\xfe\xba\xbe', 'RootHide backend must contain real arm64 and arm64e slices')
-    require(len(data) >= 48, 'Truncated universal header')
-    count = struct.unpack_from('>I', data, 4)[0]
-    require(count == 2, 'Exactly two backend architectures required')
-    slices, ranges, seen = [], [], set()
-    for n in range(count):
-        cpu, sub, offset, size, align = struct.unpack_from('>5I', data, 8+n*20)
-        require(cpu == 0x100000c and sub in (0, 0x80000002) and sub not in seen, 'Wrong/duplicate backend CPU subtype')
-        require(align <= 30 and offset >= 8+count*20 and offset % (1 << align) == 0, 'Invalid backend slice alignment')
-        require(size >= 32 and offset+size <= len(data), 'Truncated backend slice')
-        require(all(offset+size <= a or offset >= b for a,b in ranges), 'Overlapping backend slices')
-        seen.add(sub); ranges.append((offset,offset+size))
-        arch = 'arm64' if sub == 0 else 'arm64e'
-        item = macho(data[offset:offset+size], arch)
-        item.update({'architecture': arch, 'offset': offset, 'bytes': size})
-        slices.append(item)
-    require(seen == {0, 0x80000002}, 'Missing backend process ABI')
-    for field in ('filetype', 'install_name', 'dependencies', 'rpaths', 'deployment', 'platform'):
-        require(slices[0][field] == slices[1][field], 'Backend slices disagree: '+field)
-    item = {k:slices[0][k] for k in ('cpu','filetype','install_name','dependencies','rpaths','deployment','platform')}
-    item.update({'format':'universal', 'architectures':sorted(x['architecture'] for x in slices), 'slices':slices})
-    return item
-
-
 def native_sign_verify(path):
     require(platform.system() == 'Darwin', 'Native strict codesign verification requires macOS')
-    cmd = ['codesign', '--verify', '--all-architectures', '--strict', '--verbose=4', str(path)]
+    cmd = ['codesign', '--verify', '--strict', '--verbose=4', str(path)]
     p = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     require(p.returncode == 0, 'Native strict signature rejected: ' + str(path) + '\n' + p.stderr)
     return {'command': cmd, 'exit': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}
@@ -183,7 +155,7 @@ def verify(path, arch, native=True):
         require(control.get(key) == value, 'Wrong control '+key+': '+str(control.get(key)))
     post = ctl['postinst'].decode()
     commands = '\n'.join(line for line in post.splitlines() if line.strip() and not line.lstrip().startswith('#'))
-    require(ctl['postinst'] == (Path(__file__).resolve().parents[1]/'packaging/postinst').read_bytes(), 'Unexpected installer state-directory actions')
+    require(commands.strip() == 'set -e\nexit 0', 'postinst must not signal processes or mutate external directories')
     require(not re.search(r'kill|respring|sbreload|launchctl', commands, re.I), 'Forbidden installer process action')
     md5sums = dict(line.split('  ', 1)[::-1] for line in ctl['md5sums'].decode().splitlines())
     require(set(md5sums) == set(files), 'md5sums payload coverage mismatch')
@@ -191,29 +163,25 @@ def verify(path, arch, native=True):
         require(hashlib.md5(data).hexdigest() == md5sums[name], 'Payload checksum mismatch: '+name)
     main = base+'Library/MobileSubstrate/DynamicLibraries/GlassSwitchDock.dylib'
     filt = base+'Library/MobileSubstrate/DynamicLibraries/GlassSwitchDock.plist'
-    backend = base+'Library/MobileSubstrate/DynamicLibraries/GlassSwitchDockRender.dylib'
-    backend_filter = base+'Library/MobileSubstrate/DynamicLibraries/GlassSwitchDockRender.plist'
     prefs = base+'Library/PreferenceBundles/GlassSwitchDockPrefs.bundle'
     entry = base+'Library/PreferenceLoader/Preferences/GlassSwitchDock.plist'
     resources = base+'Library/Application Support/GlassSwitchDock/GlassSwitchDockResources.bundle'
     resource_files = {resources+'/default.metallib', resources+'/Info.plist',
-                      resources+'/GlassifyShaders.bundle/default.metallib', resources+'/GlassifyShaders.bundle/Info.plist',
-                      resources+'/DockTransport.bundle/default.metallib', resources+'/DockTransport.bundle/Info.plist'}
-    required = {main, filt, backend, backend_filter, prefs+'/GlassSwitchDockPrefs', prefs+'/Root.plist', prefs+'/Info.plist',
+                      resources+'/GlassifyShaders.bundle/default.metallib', resources+'/GlassifyShaders.bundle/Info.plist'}
+    required = {main, filt, prefs+'/GlassSwitchDockPrefs', prefs+'/Root.plist', prefs+'/Info.plist',
                 prefs+'/_CodeSignature/CodeResources', entry,
                 base+'usr/share/icons/com.ning.glassswitchdock.png', *resource_files,
                 *(prefs+'/'+x for x in ('icon.png', 'icon@2x.png', 'icon@3x.png'))}
     require(required <= set(files), 'Missing payload files: '+str(sorted(required-set(files))))
-    allowed = {main, filt, backend, backend_filter, entry, base+'usr/share/icons/com.ning.glassswitchdock.png', *resource_files}
+    allowed = {main, filt, entry, base+'usr/share/icons/com.ning.glassswitchdock.png', *resource_files}
     for name in files:
         require(name in allowed or name.startswith(prefs+'/') or name.startswith(base+'usr/share/doc/'+CONFIG['package']+'/'),
                 'Unexpected installed payload file: '+name)
     entries = [name for name in files if '/PreferenceLoader/Preferences/' in name]
     require(entries == [entry], 'Exactly one settings entry required')
     dylibs = [name for name in files if name.endswith('.dylib')]
-    require(set(dylibs) == {main, backend}, 'One frontend and one self-built backend required')
-    require(plistlib.loads(files[backend_filter]).get('Filter', {}).get('Bundles') == ['com.apple.backboardd'], 'Backend must select backboardd only')
-    require(len([name for name in files if name.endswith('.metallib')]) == 3, 'Two original material libraries and one transport library required')
+    require(dylibs == [main], 'Exactly one main dylib required')
+    require(len([name for name in files if name.endswith('.metallib')]) == 2, 'Exactly two original Metal libraries required')
     for name in resource_files:
         if name.endswith('.metallib'):
             require(files[name][:4] == b'MTLB', 'Invalid Metal library: '+name)
@@ -233,30 +201,19 @@ def verify(path, arch, native=True):
             dest.chmod(mode)
         specifiers(root / (prefs+'/Root.plist'))
         machos = [name for name, data in files.items() if data[:4] in MACH_MAGICS]
-        require(set(machos) == {main, backend, prefs+'/GlassSwitchDockPrefs'}, 'Unexpected/missing packaged Mach-O')
+        require(set(machos) == {main, prefs+'/GlassSwitchDockPrefs'}, 'Unexpected/missing packaged Mach-O')
         for name in machos:
-            item = backend_macho(files[name], arch) if name == backend else macho(files[name], arch)
-            variants = item.get('slices', [item])
-            require(item['filetype'] == (6 if name in (main,backend) else 8), 'Wrong Mach-O file type '+name)
+            item = macho(files[name], arch)
+            require(item['filetype'] == (6 if name == main else 8), 'Wrong Mach-O file type '+name)
             require(ROOT_HIDE in item['dependencies'] if arch == 'arm64e' else ROOT_HIDE not in item['dependencies'],
                     'RootHide runtime dependency mismatch '+name)
-            for slice_item in variants:
-                if arch == 'arm64e' and name in (main, backend):
-                    root_paths = [x for x in slice_item['imports'] if x['symbol'] == '_jbroot']
-                    require(root_paths and all(x['dependency'] == ROOT_HIDE for x in root_paths),
-                            'Missing RootHide state-path conversion import '+name)
             if name == main:
                 require(b'GLSSwitch\x00' not in files[name], 'Removed Glassify switch still compiled into product')
-                require(b'NGWallpaperBackdrop\x00' not in files[name], 'Removed Dock screenshot driver still present')
-                require(b'NGSystemBackdrop\x00' in files[name], 'Own system backdrop integration missing')
+                require(b'NGWallpaperBackdrop\x00' in files[name], 'Wallpaper capture integration missing')
                 require(item['install_name'] == '@rpath/GlassSwitchDock.dylib', 'Wrong main install name')
                 require(any('libswiftCore.dylib' in p for p in item['dependencies']), 'Main must link actual Swift runtime')
                 for framework in CONFIG['frameworks']:
                     require(any('/'+framework+'.framework/' in p for p in item['dependencies']), 'Missing linked framework '+framework)
-            elif name == backend:
-                require(item['install_name'] == '@rpath/GlassSwitchDockRender.dylib', 'Wrong self-built backend install name')
-                require(b'com.ning.glassswitchdock.dock.' in files[name], 'Own filter namespace missing')
-                require(b'com.wkk.systembox' not in files[name], 'Foreign backend namespace present')
             else:
                 require(PREFERENCES in item['dependencies'], 'Preferences must be explicitly bound')
                 ps = [x for x in item['imports'] if x['symbol'] == '_OBJC_CLASS_$_PSListController']
