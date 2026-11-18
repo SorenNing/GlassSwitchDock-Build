@@ -2,10 +2,18 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <QuartzCore/QuartzCore.h>
+#import <Metal/Metal.h>
+#import <simd/simd.h>
 
-// Static compositor layers only: no wallpaper source, timer, blur or Metal view.
+// Event-driven transparent GPU material; no background input or display link.
+struct NGDockParams { vector_float2 size; float radius; float scale; uint32_t dark; uint32_t prominent; uint32_t corners; };
 @interface NGStaticDockView : UIView
-@property(nonatomic,strong) CAGradientLayer *face;
+@property(nonatomic,strong) CALayer *face;
+@property(nonatomic,copy) NSString *renderKey;
+@property(nonatomic) NSUInteger generation;
+@property(nonatomic) NSUInteger renderRequests;
+@property(nonatomic) BOOL ready;
+@property(nonatomic,strong) NSData *pixels;
 @property(nonatomic,strong) CAGradientLayer *rim;
 @property(nonatomic,strong) CALayer *rimMask;
 @property(nonatomic) CGFloat radius;
@@ -21,8 +29,9 @@
         self.isAccessibilityElement=NO;
         self.accessibilityIdentifier=@"NGDockGlass";
         self.backgroundColor=UIColor.clearColor;
-        _face=[CAGradientLayer layer];
-        _face.locations=@[@0,@0.48,@1];
+        _face=[CALayer layer];
+        self.layer.masksToBounds=YES;
+        self.opaque=NO;
         [self.layer addSublayer:_face];
         _rim=[CAGradientLayer layer];
         _rim.locations=@[@0,@0.45,@1];
@@ -38,11 +47,8 @@
 }
 - (void)updatePalette {
     BOOL dark=self.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
-    CGFloat strength=self.style==1 ? 1.2 : 1;
+    [self setNeedsLayout];
     [CATransaction begin]; [CATransaction setDisableActions:YES];
-    self.face.colors=@[(id)[UIColor colorWithWhite:1 alpha:(dark ? 0.16 : 0.36)*strength].CGColor,
-        (id)[UIColor colorWithWhite:1 alpha:(dark ? 0.065 : 0.17)*strength].CGColor,
-        (id)[UIColor colorWithWhite:1 alpha:(dark ? 0.11 : 0.26)*strength].CGColor];
     self.rim.colors=@[(id)[UIColor colorWithWhite:1 alpha:dark ? 0.65 : 0.9].CGColor,
         (id)[UIColor colorWithWhite:1 alpha:0.12].CGColor,
         (id)[UIColor colorWithWhite:1 alpha:dark ? 0.3 : 0.55].CGColor];
@@ -55,6 +61,9 @@
 - (void)layoutSubviews {
     [super layoutSubviews];
     [CATransaction begin]; [CATransaction setDisableActions:YES];
+    self.layer.cornerRadius=self.radius;
+    self.layer.cornerCurve=self.cornerCurve ?: kCACornerCurveContinuous;
+    self.layer.maskedCorners=self.roundedCorners;
     self.face.frame=self.bounds;
     self.face.cornerRadius=self.radius;
     self.face.cornerCurve=self.cornerCurve ?: kCACornerCurveContinuous;
@@ -65,6 +74,61 @@
     self.rimMask.cornerCurve=self.face.cornerCurve;
     self.rimMask.maskedCorners=self.roundedCorners;
     [CATransaction commit];
+    [self renderMaterial];
+}
+- (void)renderMaterial {
+    CGFloat scale=self.window.screen.scale ?: UIScreen.mainScreen.scale;
+    BOOL dark=self.traitCollection.userInterfaceStyle==UIUserInterfaceStyleDark;
+    if (CGRectIsEmpty(self.bounds)) return;
+    NSString *key=[NSString stringWithFormat:@"%@/%g/%g/%d/%ld/%lu",NSStringFromCGSize(self.bounds.size),self.radius,scale,dark,(long)self.style,(unsigned long)self.roundedCorners];
+    if ([key isEqualToString:self.renderKey]) return;
+    self.renderKey=key; self.ready=NO;
+    NSUInteger generation=++self.generation; self.renderRequests++;
+    NGDockParams params={{(float)self.bounds.size.width,(float)self.bounds.size.height},(float)self.radius,(float)scale,(uint32_t)dark,(uint32_t)(self.style==1),(uint32_t)self.roundedCorners};
+    __weak NGStaticDockView *weakSelf=self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
+        static id<MTLDevice> device;
+        static id<MTLComputePipelineState> pipeline;
+        static id<MTLCommandQueue> queue;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            device=MTLCreateSystemDefaultDevice();
+            NSURL *url=[NGBundleResources() URLForResource:@"default" withExtension:@"metallib"];
+            id<MTLLibrary> library=url ? [device newLibraryWithURL:url error:NULL] : nil;
+            id<MTLFunction> function=[library newFunctionWithName:@"ngDockMaterial"];
+            if (function) pipeline=[device newComputePipelineStateWithFunction:function error:NULL];
+            queue=[device newCommandQueue];
+        });
+        if (!pipeline || !queue) return;
+        NSUInteger width=(NSUInteger)ceil(params.size.x*params.scale), height=(NSUInteger)ceil(params.size.y*params.scale);
+        MTLTextureDescriptor *descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:width height:height mipmapped:NO];
+        descriptor.usage=MTLTextureUsageShaderWrite; descriptor.storageMode=MTLStorageModeShared;
+        id<MTLTexture> texture=[device newTextureWithDescriptor:descriptor];
+        id<MTLCommandBuffer> command=[queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        if (!texture || !command || !encoder) return;
+        [encoder setComputePipelineState:pipeline];
+        [encoder setTexture:texture atIndex:0]; [encoder setBytes:&params length:sizeof(params) atIndex:0];
+        [encoder dispatchThreads:MTLSizeMake(width,height,1) threadsPerThreadgroup:MTLSizeMake(8,8,1)];
+        [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
+        if (command.status!=MTLCommandBufferStatusCompleted) return;
+        NSMutableData *data=[NSMutableData dataWithLength:width*height*4];
+        [texture getBytes:data.mutableBytes bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];
+        CGDataProviderRef provider=CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
+        CGColorSpaceRef space=CGColorSpaceCreateDeviceRGB();
+        CGImageRef image=CGImageCreate(width,height,8,32,width*4,space,kCGImageAlphaPremultipliedLast|kCGBitmapByteOrder32Big,provider,NULL,false,kCGRenderingIntentDefault);
+        CGColorSpaceRelease(space); CGDataProviderRelease(provider);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NGStaticDockView *view=weakSelf;
+            if (view && view.generation==generation && image) {
+                [CATransaction begin]; [CATransaction setDisableActions:YES];
+                view.face.contents=(__bridge id)image; view.face.contentsScale=scale;
+                view.pixels=data; view.ready=YES;
+                [CATransaction commit];
+            }
+            if (image) CGImageRelease(image);
+        });
+    });
 }
 @end
 
@@ -114,11 +178,14 @@ void NGRemoveDock(UIView *dock) {
     objc_setAssociatedObject(dock,&kNGDockBindingKey,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 #ifdef NG_TESTING
+static NSUInteger captureAttempts;
+void NGRecordCaptureAttempt(void) { @synchronized (NGStaticDockView.class) { captureAttempts++; } }
+NSUInteger NGCaptureAttemptCount(void) { @synchronized (NGStaticDockView.class) { return captureAttempts; } }
 NSDictionary *NGDockDiagnostics(UIView *dock) {
     NGDockBinding *b=objc_getAssociatedObject(dock,&kNGDockBindingKey);
     if (!b) return @{};
-    return @{@"static":@YES,@"captureAttempts":@0,@"renderRequests":@0,@"timerActive":@NO,
-        @"ready":@YES,@"style":@(b.glass.style)};
+    return @{@"static":@YES,@"captureAttempts":@(NGCaptureAttemptCount()),@"renderRequests":@(b.glass.renderRequests),@"timerActive":@NO,
+        @"ready":@(b.glass.ready),@"style":@(b.glass.style)};
 }
 #endif
 void NGRefreshDock(UIView *dock) {

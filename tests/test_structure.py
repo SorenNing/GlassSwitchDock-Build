@@ -64,10 +64,17 @@ class Structure(unittest.TestCase):
     def test_material_defaults_and_no_demo_controls(self):
         dock=text('src/NGDock.mm')
         self.assertIn('CAGradientLayer',dock); self.assertIn('NGStaticDockView',dock)
-        self.assertNotRegex(dock,r'NGWallpaperBackdrop|NSTimer|GLSGlassView|MTLCommand|UIVisualEffectView')
+        self.assertNotRegex(dock,r'NGWallpaperBackdrop|NSTimer|GLSGlassView|UIVisualEffectView')
         self.assertNotRegex(dock,r'GLSGlassButton\s*\*|UILabel|UISlider|GLSSlider|TheseusSlider|setTitle:|\.font\s*=')
         self.assertRegex(dock,r'userInteractionEnabled\s*=\s*NO')
         self.assertRegex(dock,r'isAccessibilityElement\s*=\s*NO')
+        shader=text('src/DockMaterial.metal')
+        self.assertIn('access::write',shader)
+        self.assertNotRegex(shader,r'access::sample|access::read|texture\(1\)')
+        for function in ('shapeDistance(', 'shapeGradient(', 'edgeReflection(', 'glassLight('):
+            self.assertIn(function,shader)
+        self.assertNotRegex(dock,r'captureTexture|sourceView|CADisplayLink|scheduledTimer')
+        self.assertIn('key isEqualToString:self.renderKey',dock)
         self.assertNotRegex(dock,r'blurLodBias\s*=|frost\s*=|adaptsColorScheme\s*=')
     def test_runtime_resource_and_test_isolation_contract(self):
         bridge=text('src/Bridge.h')

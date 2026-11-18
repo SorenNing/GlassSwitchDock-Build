@@ -11,7 +11,7 @@ SWITCH = ('original_identity','original_defaults','original_size_63x28','scaled_
           'reenable_detaches_old_preserves_state','refresh_is_idempotent',
           'reparent_removes_old_sibling','source_detach_removes_overlay',
           'disable_restores_native_state','restore_saved_nondefault_host_properties')
-DOCK = ('static_layers_only','host_geometry','no_touch_interception',
+DOCK = ('real_gpu_rgba_without_black_backing','layout_updates_gpu_and_native_clip','dark_mode_updates_gpu_without_capture','static_layers_only','host_geometry','no_touch_interception',
         'dock_icon_hit_test_preserved','wallpaper_change_preserves_pixels','no_capture_or_polling',
         'window_transition_retains_layers','works_without_wallpaper','disable_restores_background',
         'native_background_detached','system_reattach_removed','native_corners_and_half_point_rim')

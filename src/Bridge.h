@@ -21,6 +21,8 @@ FOUNDATION_EXPORT void NGRefreshDocks(void);
 FOUNDATION_EXPORT void NGRemoveDock(UIView *dock);
 FOUNDATION_EXPORT void NGRefreshAll(void);
 #ifdef NG_TESTING
+FOUNDATION_EXPORT void NGRecordCaptureAttempt(void);
+FOUNDATION_EXPORT NSUInteger NGCaptureAttemptCount(void);
 FOUNDATION_EXPORT NSDictionary *NGDockDiagnostics(UIView *dock);
 #endif
 

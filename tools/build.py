@@ -168,6 +168,10 @@ class Build:
             bundle.mkdir(parents=True, exist_ok=True)
             air = []
             for index, source in enumerate(sources):
+                if ident == 'com.ning.glassswitchdock.resources':
+                    generated = self.obj / 'DockTheseusShaders.metal'
+                    generated.write_text(source.read_text() + '\n' + (ROOT/'src/DockMaterial.metal').read_text())
+                    source = generated
                 output = self.obj / (ident+f'.{index}.air')
                 metal_target = ('air64-apple-ios15.0-simulator' if self.smoke else 'air64-apple-ios15.0')
                 self.run(self.tool('metal')+['-target', metal_target, '-isysroot', self.sdk, '-std=ios-metal2.4',

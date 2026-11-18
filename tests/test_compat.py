@@ -13,11 +13,13 @@ spec.loader.exec_module(compat)
 class Compatibility(unittest.TestCase):
     def test_pinned_inputs_generate_without_changing_originals(self):
         paths = [next((ROOT/'Vendor/Theseus/Sources').rglob(name))
-                 for name in ('TheseusSwitch.swift', 'TheseusRenderer.swift')]
+                 for name in ('TheseusSwitch.swift', 'TheseusRenderer.swift', 'BackgroundCaptureDraw.swift', 'ViewLayerCapture.swift')]
         before = [p.read_bytes() for p in paths]
         with tempfile.TemporaryDirectory() as directory:
             outputs = compat.prepare_sources(paths, directory)
-            self.assertEqual(len(outputs), 2)
+            self.assertEqual(len(outputs), 4)
+            for output in outputs[2:]:
+                self.assertEqual(output.read_text().count("NGRecordCaptureAttempt()"), 1)
             switch = outputs[0].read_text()
             self.assertIn('self.presentationGeneration == generation', switch)
             self.assertIn('private var theseusSourceView: UIView? { self }', switch)

@@ -96,10 +96,16 @@ def renderer_source(text):
                 DispatchQueue.main.async(execute: onPresent)''')
 
 
+def capture_source(text):
+    marker = '        let ' + ('hiddenStates' if 'let hiddenStates = excludedViews' in text else 'previousVisibility') + ' = excludedViews.map { $0.isHidden }'
+    return replace_once(text, marker, '        #if NG_TESTING\n        NGRecordCaptureAttempt()\n        #endif\n' + marker)
+
+
 def prepare_sources(sources, directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    patches = {'TheseusSwitch.swift': switch_source, 'TheseusRenderer.swift': renderer_source}
+    patches = {'TheseusSwitch.swift': switch_source, 'TheseusRenderer.swift': renderer_source,
+               'BackgroundCaptureDraw.swift': capture_source, 'ViewLayerCapture.swift': capture_source}
     result = []
     for source in sources:
         source = Path(source)
