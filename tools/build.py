@@ -90,7 +90,8 @@ class Build:
             self.linkbase += ['-L'+str(ROOT/'packaging/stubs'), '-Wl,-needed-lroothide']
 
     def swift_library(self):
-        sources = list(self.src['swift'])
+        from theseus_compat import prepare_sources
+        sources = prepare_sources(self.src['swift'], self.obj / 'compat')
         if self.harness:
             sources += sorted((ROOT / 'tests/Harness').glob('*.swift'))
         archive = self.obj / 'libGlassSwitchDockSwift.a'

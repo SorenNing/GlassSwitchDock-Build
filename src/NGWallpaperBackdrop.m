@@ -86,6 +86,13 @@ static NSDictionary *NGInspectWallpaperImage(UIImage *image) {
 - (BOOL)updateForDock:(UIView *)dock background:(UIView *)background force:(BOOL)force {
     UIWindow *window=dock.window;
     if (!window || !self.superview) return _hasFrame;
+    // Never snapshot UIKit while the user is scrolling or the Dock hierarchy
+    // is animating. Keep the last valid input throughout app/home transitions.
+    if (_hasFrame) {
+        if ([NSRunLoop.currentRunLoop.currentMode isEqualToString:UITrackingRunLoopMode]) return YES;
+        for (UIView *view=dock;view;view=view.superview)
+            if (view.layer.animationKeys.count) return YES;
+    }
     CGRect onScreen=[background convertRect:background.bounds toView:window];
     CGRect capture=CGRectIntersection(CGRectInset(onScreen,-96,-96),window.bounds);
     if (CGRectIsEmpty(capture) || CGRectIsNull(capture)) return _hasFrame;

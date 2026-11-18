@@ -185,6 +185,23 @@ static void NGRunDockCase(NGRecorder *r, UIView *root, NSUInteger index, dispatc
                                     name:NGDockID(cls,style,@"initial_failure_retains_native_background")
                                     evidence:@{@"alpha":@(empty.backgroundView.alpha),@"nativeAlpha":@(nativeAlpha)}];
                                 NGRemoveDock(empty); [empty removeFromSuperview];
+                                // App/home transitions can detach and reattach the same
+                                // Dock. Its completed glass must survive that lifecycle.
+                                [dock removeFromSuperview]; NGRefreshFixtureDock(dock);
+                                BOOL retained=NGMaterial(dock,style)==material && dock.backgroundView.alpha==0;
+                                [root addSubview:dock]; NGRefreshFixtureDock(dock);
+                                [r check:retained && NGMaterial(dock,style)==material && NGMaterialCount(dock)==1 &&
+                                    dock.backgroundView.alpha==0 && material.alpha==alpha
+                                    name:NGDockID(cls,style,@"window_transition_retains_completed_glass")
+                                    evidence:@{@"retained":@(retained),@"count":@(NGMaterialCount(dock)),@"alpha":@(material.alpha)}];
+                                NSUInteger trackingAttempts=capture.captureAttempts;
+                                CABasicAnimation *transition=[CABasicAnimation animationWithKeyPath:@"opacity"];
+                                transition.fromValue=@1; transition.toValue=@0.5; transition.duration=1;
+                                [dock.layer addAnimation:transition forKey:@"NGTransitionFixture"];
+                                [capture updateForDock:dock background:dock.backgroundView force:YES];
+                                [r check:capture.captureAttempts==trackingAttempts
+                                    name:NGDockID(cls,style,@"transition_skips_wallpaper_capture") evidence:capture.diagnostics];
+                                [dock.layer removeAnimationForKey:@"NGTransitionFixture"];
                                 NSUInteger hiddenAttempts=capture.captureAttempts;
                                 dock.hidden=YES;
                                 for (NSUInteger i=0;i<30;i++) NGRefreshFixtureDock(dock);

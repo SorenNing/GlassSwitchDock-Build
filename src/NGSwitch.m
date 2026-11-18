@@ -15,6 +15,7 @@ static NSHashTable<UISwitch *> *NGSeenSwitches(void) {
 @property(nonatomic) BOOL originalAccessibility;
 @property(nonatomic) BOOL forwarding;
 @property(nonatomic) BOOL modifyingNative;
+@property(nonatomic) BOOL refreshing;
 - (void)commit:(BOOL)value;
 @end
 
@@ -69,13 +70,17 @@ void NGRefreshSwitch(UISwitch *source) {
         binding.overlay.clipsToBounds = NO;
         objc_setAssociatedObject(source,&kNGBindingKey,binding,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+    if (binding.refreshing) return;
+    binding.refreshing = YES;
+    @try {
     UIView *parent = source.superview;
     if (binding.overlay.superview != parent) { [binding.overlay removeFromSuperview]; [parent insertSubview:binding.overlay aboveSubview:source]; }
-    // Preserve the original Theseus 63 x 28 track and Layout defaults.
-    CGSize size = CGSizeMake(63,28);
-    CGPoint center = [source convertPoint:CGPointMake(CGRectGetMidX(source.bounds),CGRectGetMidY(source.bounds)) toView:parent];
-    binding.overlay.bounds = (CGRect){CGPointZero,size}; binding.overlay.center = center;
-    binding.overlay.transform = source.transform;
+    // Match the native host without applying its transform twice.
+    CGSize size = source.bounds.size;
+    CGPoint center = source.center;
+    if (!CGSizeEqualToSize(binding.overlay.bounds.size,size)) binding.overlay.bounds = (CGRect){CGPointZero,size};
+    if (!CGPointEqualToPoint(binding.overlay.center,center)) binding.overlay.center = center;
+    if (!CGAffineTransformEqualToTransform(binding.overlay.transform,source.transform)) binding.overlay.transform = source.transform;
     binding.overlay.hidden = source.hidden;
     binding.overlay.userInteractionEnabled = source.userInteractionEnabled;
     binding.overlay.alpha = binding.originalAlpha;
@@ -83,6 +88,7 @@ void NGRefreshSwitch(UISwitch *source) {
     source.alpha = 0; source.isAccessibilityElement = NO;
     binding.modifyingNative = NO;
     NGSyncSwitch(source, NO);
+    } @finally { binding.refreshing = NO; }
 }
 
 void NGRefreshAllSwitches(void) {

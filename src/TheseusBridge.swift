@@ -23,7 +23,23 @@ final class NGTheseusSwitch: UIView {
     }
     required init?(coder: NSCoder) { return nil }
     override var intrinsicContentSize: CGSize { toggle.intrinsicContentSize }
-    override func layoutSubviews() { super.layoutSubviews(); toggle.frame = bounds }
+    override var isHidden: Bool { didSet { toggle.isHidden = isHidden } }
+    override func willMove(toSuperview newSuperview: UIView?) {
+        if newSuperview !== superview { toggle.isHidden = true }
+        super.willMove(toSuperview: newSuperview)
+    }
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        toggle.isHidden = isHidden || superview == nil
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let scale = min(bounds.width / 63, bounds.height / 28)
+        toggle.bounds = CGRect(x: 0, y: 0, width: 63, height: 28)
+        toggle.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        toggle.transform = CGAffineTransform(scaleX: scale, y: scale)
+        toggle.layoutIfNeeded()
+    }
     @objc(setOn:animated:) func setOn(_ value: Bool, animated: Bool) {
         toggle.setOn(value, animated: animated)
     }

@@ -117,12 +117,13 @@ static void NGDockUpdateBackdrop(NGDockBinding *binding, BOOL force) {
         if (!NGDockVisible(binding)) {
             if (!binding.suspended) {
                 binding.suspended=YES;
-                if (binding.style==0) [(id<NGGlassComponent>)binding.glass setRenderingActive:NO];
-                else [((GLSGlassView *)binding.glass) gls_surface].hidden=YES;
+                // Keep the last drawable visible; idle rendering already skips
+                // unchanged frames. Hiding the surface here creates a blank
+                // frame on the first tick of the return transition.
             }
             return;
         }
-        if (binding.suspended) { binding.suspended=NO; binding.dirty=YES; binding.idlePolls=0; binding.wallpaper.captureInterval=0.25; }
+        if (binding.suspended) { binding.suspended=NO; }
         if (![binding.wallpaper updateForDock:binding.dock background:binding.background force:force]) {
             if (!binding.ready) NGDockSetVisibility(binding,NO);
             return;
@@ -134,7 +135,7 @@ static void NGDockUpdateBackdrop(NGDockBinding *binding, BOOL force) {
             NSUInteger attempts=binding.wallpaper.captureAttempts;
             if (attempts!=binding.lastPollAttempts) {
                 binding.lastPollAttempts=attempts; binding.idlePolls++;
-                binding.wallpaper.captureInterval=binding.idlePolls>=8 ? 1.0 : binding.idlePolls>=4 ? 0.5 : 0.25;
+                binding.wallpaper.captureInterval=binding.idlePolls>=4 ? 2.0 : binding.idlePolls>=2 ? 1.0 : 0.5;
             }
             return;
         }
@@ -241,7 +242,15 @@ NSDictionary *NGDockDiagnostics(UIView *dock) {
 void NGRefreshDock(UIView *dock) {
     if (!NSThread.isMainThread || ![dock isKindOfClass:UIView.class]) return;
     [NGSeenDocks() addObject:dock];
-    if (!NGDockEnabled() || !dock.window) { NGRemoveDock(dock); return; }
+    if (!NGDockEnabled()) { NGRemoveDock(dock); return; }
+    if (!dock.window) {
+        // App transitions may temporarily detach the same Dock. Retain its
+        // completed frame and native/override handoff instead of rebuilding.
+        NGDockBinding *retained = objc_getAssociatedObject(dock,&kNGDockBindingKey);
+        [retained.timer invalidate]; retained.timer=nil;
+        retained.suspended=YES;
+        return;
+    }
     UIView *background = NGDockBackground(dock);
     if (!background.superview || ![background isDescendantOfView:dock] || CGRectIsEmpty(background.bounds)) return;
     NGDockBinding *binding = objc_getAssociatedObject(dock,&kNGDockBindingKey);
