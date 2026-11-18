@@ -22,8 +22,14 @@ static void NGSwitchTransform(UISwitch *s,SEL c,CGAffineTransform v) { if (gSWTr
 static void NGSwitchLayout(UISwitch *s,SEL c) { if (gSWLayout) gSWLayout(s,c); NGRefreshSwitch(s); }
 static void NGSwitchWindow(UISwitch *s,SEL c) { if (gSWWindow) gSWWindow(s,c); NGRefreshSwitch(s); }
 static void NGSwitchParent(UISwitch *s,SEL c) { if (gSWParent) gSWParent(s,c); NGRefreshSwitch(s); }
-static void NGSwitchOn(UISwitch *s,SEL c,BOOL v) { if (gSWOn) gSWOn(s,c,v); NGSyncSwitch(s,NO); }
-static void NGSwitchOnAnimated(UISwitch *s,SEL c,BOOL v,BOOL a) { if (gSWOnAnimated) gSWOnAnimated(s,c,v,a); NGSyncSwitch(s,a); }
+static void NGSwitchOn(UISwitch *s,SEL c,BOOL v) {
+    NGBeginSwitchUpdate(s,NO);
+    @try { if (gSWOn) gSWOn(s,c,v); } @finally { NGEndSwitchUpdate(s); }
+}
+static void NGSwitchOnAnimated(UISwitch *s,SEL c,BOOL v,BOOL a) {
+    NGBeginSwitchUpdate(s,a);
+    @try { if (gSWOnAnimated) gSWOnAnimated(s,c,v,a); } @finally { NGEndSwitchUpdate(s); }
+}
 static void NGHookSwitchEnabled(UISwitch *s,SEL c,BOOL v) { if (gSWEnabled) gSWEnabled(s,c,v); NGSyncSwitch(s,NO); }
 static void NGSwitchHidden(UISwitch *s,SEL c,BOOL v) { if (gSWHidden) gSWHidden(s,c,v); NGRefreshSwitch(s); }
 static void NGSwitchAlpha(UISwitch *s,SEL c,CGFloat v) { BOOL replaced=NGHandleSwitchAlpha(s,v); if (gSWAlpha) gSWAlpha(s,c,replaced?0:v); }
@@ -40,6 +46,77 @@ static void NGInstallMethod(Class cls, SEL sel, IMP replacement, IMP *original) 
     class_addMethod(cls,sel,method_getImplementation(method),method_getTypeEncoding(method));
     gNGHook(cls,sel,replacement,original);
 }
+
+// Hook only methods a loaded UISwitch subclass actually overrides. Calling the
+// inherited hook is insufficient when an app deliberately omits [super ...].
+// Each block captures its own original IMP, including subclasses of subclasses.
+static void NGInstallSwitchSubclassHooks(void) {
+    if (!gNGHook) return;
+    static NSMutableSet<NSString *> *installed;
+    if (!installed) installed=[NSMutableSet new];
+    int count=objc_getClassList(NULL,0);
+    Class *classes=(Class *)calloc((size_t)MAX(count,1),sizeof(Class));
+    if (!classes) return;
+    count=MIN(count,objc_getClassList(classes,count));
+    for (int i=0;i<count;i++) {
+        Class cls=classes[i], parent=class_getSuperclass(cls);
+        while (parent && parent!=UISwitch.class) parent=class_getSuperclass(parent);
+        if (!parent) continue;
+        unsigned int methodCount=0;
+        Method *methods=class_copyMethodList(cls,&methodCount);
+        for (unsigned int j=0;j<methodCount;j++) {
+            SEL sel=method_getName(methods[j]);
+            NSString *name=NSStringFromSelector(sel);
+            NSString *key=[NSString stringWithFormat:@"%@/%@",NSStringFromClass(cls),name];
+            if ([installed containsObject:key]) continue;
+            __block IMP original=NULL;
+            IMP replacement=NULL;
+            if ([name isEqualToString:@"setFrame:"] || [name isEqualToString:@"setBounds:"]) {
+                replacement=imp_implementationWithBlock(^(UISwitch *s,CGRect value) {
+                    ((void(*)(id,SEL,CGRect))original)(s,sel,value); NGRefreshSwitch(s);
+                });
+            } else if ([name isEqualToString:@"setCenter:"]) {
+                replacement=imp_implementationWithBlock(^(UISwitch *s,CGPoint value) {
+                    ((void(*)(id,SEL,CGPoint))original)(s,sel,value); NGRefreshSwitch(s);
+                });
+            } else if ([name isEqualToString:@"setTransform:"]) {
+                replacement=imp_implementationWithBlock(^(UISwitch *s,CGAffineTransform value) {
+                    ((void(*)(id,SEL,CGAffineTransform))original)(s,sel,value); NGRefreshSwitch(s);
+                });
+            } else if ([name isEqualToString:@"layoutSubviews"] || [name isEqualToString:@"didMoveToWindow"] || [name isEqualToString:@"didMoveToSuperview"]) {
+                replacement=imp_implementationWithBlock(^(UISwitch *s) {
+                    ((void(*)(id,SEL))original)(s,sel); NGRefreshSwitch(s);
+                });
+            } else if ([name isEqualToString:@"setOn:animated:"]) {
+                replacement=imp_implementationWithBlock(^(UISwitch *s,BOOL value,BOOL animated) {
+                    NGBeginSwitchUpdate(s,animated);
+                    @try { ((void(*)(id,SEL,BOOL,BOOL))original)(s,sel,value,animated); }
+                    @finally { NGEndSwitchUpdate(s); }
+                });
+            } else if ([name isEqualToString:@"setOn:"] || [name isEqualToString:@"setEnabled:"] || [name isEqualToString:@"setHidden:"] || [name isEqualToString:@"setUserInteractionEnabled:"]) {
+                replacement=imp_implementationWithBlock(^(UISwitch *s,BOOL value) {
+                    NGBeginSwitchUpdate(s,NO);
+                    @try { ((void(*)(id,SEL,BOOL))original)(s,sel,value); }
+                    @finally { NGEndSwitchUpdate(s); }
+                });
+            }
+            if (replacement) {
+                gNGHook(cls,sel,replacement,&original);
+                [installed addObject:key];
+            }
+        }
+        free(methods);
+    }
+    free(classes);
+}
+
+#ifdef NG_TESTING
+// The simulator has no substrate injection runtime. Supply its method installer
+// so the exact production subclass discovery/wrappers can still be exercised.
+void NGTestInstallSwitchSubclassHooks(void (*installer)(Class,SEL,IMP,IMP *)) {
+    gNGHook=installer; NGInstallSwitchSubclassHooks();
+}
+#endif
 
 static void NGChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef info) {
     dispatch_async(dispatch_get_main_queue(), ^{ NGPreferencesReload(); NGRefreshAll(); });
@@ -74,6 +151,14 @@ __attribute__((constructor)) static void NGInitialize(void) {
         NGInstallMethod(sw,@selector(setHidden:),(IMP)NGSwitchHidden,(IMP *)&gSWHidden);
         NGInstallMethod(sw,@selector(setAlpha:),(IMP)NGSwitchAlpha,(IMP *)&gSWAlpha);
         NGInstallMethod(sw,@selector(setUserInteractionEnabled:),(IMP)NGSwitchInteraction,(IMP *)&gSWInteraction);
+        // App classes are normally registered before constructors; repeat at
+        // launch/activation to include classes loaded by later app frameworks.
+        NGInstallSwitchSubclassHooks();
+        for (NSNotificationName name in @[UIApplicationDidFinishLaunchingNotification, UIApplicationDidBecomeActiveNotification]) {
+            [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+                NGInstallSwitchSubclassHooks(); NGRefreshAllSwitches();
+            }];
+        }
         if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
             Class dock=NSClassFromString(@"SBDockView");
             NGInstallMethod(dock,@selector(layoutSubviews),(IMP)NGDockLayout,(IMP *)&gDockLayout);

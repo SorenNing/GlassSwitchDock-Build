@@ -15,6 +15,8 @@ FOUNDATION_EXPORT void NGRefreshSwitch(UISwitch *source);
 FOUNDATION_EXPORT void NGRefreshAllSwitches(void);
 FOUNDATION_EXPORT void NGRemoveSwitch(UISwitch *source);
 FOUNDATION_EXPORT void NGSyncSwitch(UISwitch *source, BOOL animated);
+FOUNDATION_EXPORT void NGBeginSwitchUpdate(UISwitch *source, BOOL animated);
+FOUNDATION_EXPORT void NGEndSwitchUpdate(UISwitch *source);
 FOUNDATION_EXPORT BOOL NGHandleSwitchAlpha(UISwitch *source, CGFloat alpha);
 FOUNDATION_EXPORT void NGRefreshDock(UIView *dock);
 FOUNDATION_EXPORT void NGRefreshDocks(void);

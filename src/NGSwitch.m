@@ -3,7 +3,33 @@
 #import <objc/message.h>
 #import <math.h>
 
-static char kNGBindingKey;
+static char kNGBindingKey, kNGUpdateKey;
+
+@interface NGSwitchUpdate : NSObject
+@property(nonatomic) NSUInteger depth;
+@property(nonatomic) BOOL animated;
+@end
+@implementation NGSwitchUpdate
+@end
+
+void NGBeginSwitchUpdate(UISwitch *source, BOOL animated) {
+    NGSwitchUpdate *update = objc_getAssociatedObject(source, &kNGUpdateKey);
+    if (!update) {
+        update = [NGSwitchUpdate new]; update.animated = animated;
+        objc_setAssociatedObject(source, &kNGUpdateKey, update, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    update.depth++;
+}
+
+void NGEndSwitchUpdate(UISwitch *source) {
+    NGSwitchUpdate *update = objc_getAssociatedObject(source, &kNGUpdateKey);
+    if (!update || --update.depth) return;
+    // Geometry callbacks during the original setter must not consume the state
+    // change with an unanimated sync before the outer animated setter returns.
+    @try { NGRefreshSwitch(source); }
+    @finally { objc_setAssociatedObject(source, &kNGUpdateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+    NGSyncSwitch(source, update.animated);
+}
 static NSHashTable<UISwitch *> *NGSeenSwitches(void) {
     static NSHashTable *seen; static dispatch_once_t once;
     dispatch_once(&once, ^{ seen = [NSHashTable weakObjectsHashTable]; }); return seen;
@@ -37,7 +63,7 @@ static NSHashTable<UISwitch *> *NGSeenSwitches(void) {
 
 void NGSyncSwitch(UISwitch *source, BOOL animated) {
     NGSwitchBinding *binding = objc_getAssociatedObject(source, &kNGBindingKey);
-    if (!binding || binding.forwarding) return;
+    if (!binding || binding.forwarding || objc_getAssociatedObject(source, &kNGUpdateKey)) return;
     id<NGSwitchComponent> component = (id)binding.overlay;
     if ([(id)component isOn] != source.isOn) [component setOn:source.isOn animated:animated];
     SEL enabled = NSSelectorFromString(@"setControlEnabled:");
@@ -94,12 +120,14 @@ void NGRefreshSwitch(UISwitch *source) {
         compensation=CGAffineTransformMakeScale(1/sx,1/sy);
     if (!CGAffineTransformEqualToTransform(binding.overlay.transform,compensation))
         binding.overlay.transform=compensation;
-    binding.overlay.hidden = source.hidden;
-    binding.overlay.userInteractionEnabled = source.userInteractionEnabled;
-    binding.overlay.alpha = binding.originalAlpha;
+    if (binding.overlay.hidden != source.hidden) binding.overlay.hidden = source.hidden;
+    if (binding.overlay.userInteractionEnabled != source.userInteractionEnabled) binding.overlay.userInteractionEnabled = source.userInteractionEnabled;
+    if (binding.overlay.alpha != binding.originalAlpha) binding.overlay.alpha = binding.originalAlpha;
     binding.modifyingNative = YES;
-    source.alpha = 0; source.isAccessibilityElement = NO;
-    binding.modifyingNative = NO;
+    @try {
+        if (source.alpha != 0) source.alpha = 0;
+        if (source.isAccessibilityElement) source.isAccessibilityElement = NO;
+    } @finally { binding.modifyingNative = NO; }
     NGSyncSwitch(source, NO);
     } @finally { binding.refreshing = NO; }
 }

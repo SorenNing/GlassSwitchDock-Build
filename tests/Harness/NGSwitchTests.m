@@ -1,4 +1,23 @@
 #import "NGHarness.h"
+#import <objc/runtime.h>
+
+extern void NGTestInstallSwitchSubclassHooks(void (*installer)(Class,SEL,IMP,IMP *));
+static void NGFixtureInstall(Class cls, SEL sel, IMP replacement, IMP *original) {
+    Method method=class_getInstanceMethod(cls,sel);
+    *original=method_getImplementation(method);
+    class_replaceMethod(cls,sel,replacement,method_getTypeEncoding(method));
+}
+// Deliberately omit super, as an app subclass is allowed to do. This is a
+// synthetic app fixture, not evidence of WeChat's actual control hierarchy.
+@interface NGAppSwitchFixture : UISwitch
+@property(nonatomic) BOOL fixtureOn;
+@end
+@implementation NGAppSwitchFixture
+- (void)layoutSubviews {}
+- (BOOL)isOn { return self.fixtureOn; }
+- (void)setOn:(BOOL)value { self.fixtureOn=value; }
+- (void)setOn:(BOOL)value animated:(BOOL)animated { self.on=value; [self layoutSubviews]; }
+@end
 
 static BOOL NGComponentOn(UIView *component, NSInteger style) {
     return [[NGTheseusProbe inspectSwitch:component][@"isOn"] boolValue];
@@ -101,6 +120,16 @@ void NGRunSwitchTests(NGRecorder *r, UIView *root) {
         BOOL dragged = NGInteract(component, style, YES, NO); NGPump(0.18);
         [r check:dragged && !a.on && !NGComponentOn(component, style) && spyA.count == 2 && spyA.values.count == 2 && ![spyA.values.lastObject boolValue]
                name:NGID(style, @"drag_commits_exactly_one_native_event") evidence:NGState(a, component, style, spyA)];
+        // Nested native setters/layout callbacks must leave the overlay's old
+        // value intact until the outer animated operation has completed.
+        NGBeginSwitchUpdate(a,YES);
+        [a setOn:YES animated:NO];
+        NGBeginSwitchUpdate(a,NO); NGRefreshSwitch(a); NGEndSwitchUpdate(a);
+        BOOL deferred = !NGComponentOn(component,style);
+        NGEndSwitchUpdate(a);
+        [r check:deferred && NGComponentOn(component,style) && a.on && spyA.count==2
+               name:NGID(style,@"nested_setter_defers_state_sync") evidence:NGState(a,component,style,spyA)];
+        [a setOn:NO animated:NO]; NGRefreshSwitch(a);
         for (NSUInteger i = 0; i < 6; i++) {
             BOOL value = i % 2 == 0;
             [a setOn:value animated:i % 2]; NGRefreshSwitch(a); NGPump(0.025);
@@ -163,6 +192,16 @@ void NGRunSwitchTests(NGRecorder *r, UIView *root) {
            evidence:@{@"alpha": @(a.alpha), @"interaction": @(a.userInteractionEnabled), @"accessibilityElement": @(a.isAccessibilityElement)}];
         a.alpha = 1; a.userInteractionEnabled = YES; a.isAccessibilityElement = YES;
     }
+    NGWritePreferences(YES, NO, 0);
+    NGTestInstallSwitchSubclassHooks(NGFixtureInstall);
+    NGAppSwitchFixture *appSwitch=[[NGAppSwitchFixture alloc] initWithFrame:CGRectMake(22,100,63,28)];
+    [fixture addSubview:appSwitch]; [appSwitch layoutSubviews];
+    UIView *appComponent=NGSwitchComponent(appSwitch,fixture,0);
+    [appSwitch setOn:YES animated:YES];
+    [r check:appComponent && NGComponentOn(appComponent,0) && appSwitch.on
+           name:@"switch.theseus.subclass_override_without_super"
+           evidence:@{@"sourceClass":NSStringFromClass(appSwitch.class),@"componentFound":@(appComponent!=nil),@"on":@(appSwitch.on)}];
+    NGRemoveSwitch(appSwitch); [appSwitch removeFromSuperview];
     NGWritePreferences(NO, NO, 0); NGRemoveSwitch(a); NGRemoveSwitch(b);
     [fixture removeFromSuperview];
 }

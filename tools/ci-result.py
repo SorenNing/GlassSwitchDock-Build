@@ -37,6 +37,21 @@ else:
                 safe = ''.join(c for c in identifier if c.isascii() and (c.isalnum() or c in '._-'))[:180]
                 summary.append(f'- Failed assertion: `{safe}`')
                 print(f'::error title=Native assertion failed::{safe}', flush=True)
+                if safe in {
+                    'dock.SBDockView.staticProminent.real_gpu_rgba_without_black_backing',
+                    'dock.SBFloatingDockPlatterView.staticProminent.real_gpu_rgba_without_black_backing',
+                }:
+                    evidence = check.get('evidence', {})
+                    if isinstance(evidence, dict):
+                        fields = []
+                        for key in ('bytes', 'transparent', 'translucent', 'colored', 'minAlpha', 'maxAlpha'):
+                            value = evidence.get(key)
+                            if type(value) is int and 0 <= value <= 2**53:
+                                fields.append(f'{key}={value}')
+                        if fields:
+                            details = ', '.join(fields)
+                            summary.append(f'  - Pixel evidence: {details}')
+                            print(f'::error title=Native pixel evidence::{safe}: {details}', flush=True)
     except (OSError, ValueError, TypeError):
         summary += ['', 'Native report absent or unreadable: failure occurred before a complete report was collected.']
         print('::error title=Native report unavailable::No complete simulator report was collected.', flush=True)

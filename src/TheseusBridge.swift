@@ -23,7 +23,9 @@ final class NGTheseusSwitch: UIView {
     }
     required init?(coder: NSCoder) { return nil }
     override var intrinsicContentSize: CGSize { toggle.intrinsicContentSize }
-    override var isHidden: Bool { didSet { toggle.isHidden = isHidden } }
+    override var isHidden: Bool {
+        didSet { if toggle.isHidden != isHidden { toggle.isHidden = isHidden } }
+    }
     override func willMove(toSuperview newSuperview: UIView?) {
         if newSuperview !== superview { toggle.isHidden = true }
         super.willMove(toSuperview: newSuperview)
@@ -34,15 +36,18 @@ final class NGTheseusSwitch: UIView {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        toggle.bounds = CGRect(x: 0, y: 0, width: 63, height: 28)
-        toggle.center = CGPoint(x: bounds.midX, y: bounds.midY)
-        toggle.transform = .identity
-        toggle.layoutIfNeeded()
+        let targetBounds = CGRect(x: 0, y: 0, width: 63, height: 28)
+        let targetCenter = CGPoint(x: bounds.midX, y: bounds.midY)
+        if toggle.bounds != targetBounds { toggle.bounds = targetBounds }
+        if toggle.center != targetCenter { toggle.center = targetCenter }
+        if toggle.transform != .identity { toggle.transform = .identity }
     }
     @objc(setOn:animated:) func setOn(_ value: Bool, animated: Bool) {
         toggle.setOn(value, animated: animated)
     }
-    @objc(setControlEnabled:) func setControlEnabled(_ enabled: Bool) { toggle.isEnabled = enabled }
+    @objc(setControlEnabled:) func setControlEnabled(_ enabled: Bool) {
+        if toggle.isEnabled != enabled { toggle.isEnabled = enabled }
+    }
     override var accessibilityLabel: String? {
         get { toggle.accessibilityLabel }
         set { toggle.accessibilityLabel = newValue }
